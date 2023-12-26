@@ -1,3 +1,4 @@
+import csv
 import numpy as np
 import pandas as pd
 import os, sys, random
@@ -170,6 +171,14 @@ def create_data_loader(train_df, val_df, train_root, val_root):
 def L1_penalty(net, alpha):
     l1_penalty = torch.nn.L1Loss(size_average=False)
     loss = 0
+    for param in net.fc.parameters():
+        loss += torch.sum(torch.abs(param))
+
+    return alpha * loss
+
+def L1_penalty_multi(net, alpha):
+    l1_penalty = torch.nn.L1Loss(size_average=False)
+    loss = 0
     for param in net.module.fc.parameters():
         loss += torch.sum(torch.abs(param))
 
@@ -248,18 +257,17 @@ import time
 
 
 def map_fn(flags, data_dir, k):
-    root = './output'
     model_name = f'rsa50_fold{k}'
     # path = f'{root}/{model_name}_fold{k}'
     # Sets a common random seed - both for initialization and ensuring graph is the same
     seed_everything(seed=flags['seed'])
 
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
-    gpus = [0, 1]
-    torch.cuda.set_device('cuda:{}'.format(gpus[0]))
+    # gpus = [0, 1]
+    # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
     #   mymodel = BAA_base(32)
-    mymodel = BAA_New(32, *get_My_resnet50())
+    mymodel = BAA_New(32, *get_My_resnet50()).cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
@@ -304,7 +312,6 @@ def map_fn(flags, data_dir, k):
     scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
 
     ## Trains
-    train_start = time.time()
     for epoch in range(flags['num_epochs']):
         global training_loss
         training_loss = torch.tensor([0], dtype=torch.float32)
@@ -317,18 +324,88 @@ def map_fn(flags, data_dir, k):
         val_total_size = torch.tensor([0], dtype=torch.float32)
 
         start_time = time.time()
-        # train_fn(mymodel, train_loader, loss_fn, epoch, optimizer)
+        train_fn(mymodel, train_loader, loss_fn, epoch, optimizer)
 
         ## Evaluation
         # Sets net to eval and no grad context
-        # evaluate_fn(mymodel, val_loader)
+        evaluate_fn(mymodel, val_loader)
 
         scheduler.step()
 
         train_loss, val_mae = training_loss / total_size, mae_loss / val_total_size
         print(
             f'training loss is {train_loss}, val loss is {val_mae}, time : {time.time() - start_time}, lr:{optimizer.param_groups[0]["lr"]}')
-    # torch.save(mymodel.module.state_dict(), '/'.join([root, f'{model_name}.bin']))
+
+    torch.save(mymodel.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
+    # if use multi-gpu
+    # torch.save(mymodel.module.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
+
+    # save log
+    with torch.no_grad():
+        train_record = [['label', 'pred']]
+        train_record_path = os.path.join(save_path, f"train{k}.csv")
+        train_length = 0.
+        total_loss = 0.
+        mymodel.eval()
+        for idx, data in enumerate(train_loader):
+            image, gender = data[0]
+            image, gender = image.cuda(), gender.cuda()
+
+            batch_size = len(data[1])
+            label = data[1].cuda()
+
+            _, _, _, y_pred = mymodel(image, gender)
+
+            output = (y_pred.cpu() * boneage_div) + boneage_mean
+            label = (label.cpu() * boneage_div) + boneage_mean
+
+            output = torch.squeeze(output)
+            label = torch.squeeze(label)
+            for i in range(output.shape[0]):
+                train_record.append([label[i].item(), round(output[i].item(), 2)])
+            assert output.shape == label.shape, "pred and output isn't the same shape"
+
+            total_loss += F.l1_loss(output, label, reduction='sum').item()
+            train_length += batch_size
+        print(f"length :{train_length}")
+        print(f'{k} fold final training loss: {round(total_loss / train_length, 3)}')
+        with open(train_record_path, 'w', newline='') as csvfile:
+            writer_train = csv.writer(csvfile)
+            for row in train_record:
+                writer_train.writerow(row)
+
+    with torch.no_grad():
+        val_record = [['label', 'pred']]
+        val_record_path = os.path.join(save_path, f"val{k}.csv")
+        val_length = 0.
+        val_loss = 0.
+        mymodel.eval()
+        for idx, data in enumerate(val_loader):
+            image, gender = data[0]
+            image, gender = image.cuda(), gender.cuda()
+
+            batch_size = len(data[1])
+            label = data[1].cuda()
+
+            _, _, _, y_pred = mymodel(image, gender)
+
+            output = (y_pred.cpu() * boneage_div) + boneage_mean
+            label = label.cpu()
+
+            output = torch.squeeze(output)
+            label = torch.squeeze(label)
+            for i in range(output.shape[0]):
+                val_record.append([label[i].item(), round(output[i].item(), 2)])
+            assert output.shape == label.shape, "pred and output isn't the same shape"
+
+            val_loss += F.l1_loss(output, label, reduction='sum').item()
+            val_length += batch_size
+        print(f"length :{val_length}")
+        print(f'{k} fold final val loss: {round(val_loss / val_length, 3)}')
+        with open(val_record_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            for row in val_record:
+                writer.writerow(row)
 
 
 if __name__ == "__main__":
@@ -344,6 +421,8 @@ if __name__ == "__main__":
     parser.add_argument('num_epochs', type=int)
     parser.add_argument('seed', type=int)
     args = parser.parse_args()
+    save_path = '../../autodl-tmp/'
+    os.makedirs(save_path, exist_ok=True)
 
     model = BAA_New(32, *get_My_resnet50())
 
@@ -357,7 +436,7 @@ if __name__ == "__main__":
     train_df = pd.read_csv(f'../archive/boneage-training-dataset.csv')
     boneage_mean = train_df['boneage'].mean()
     boneage_div = train_df['boneage'].std()
-    train_ori_dir = '../../autodl-tmp/ori'
+    train_ori_dir = '../../autodl-tmp/K-fold/'
     # train_ori_dir = '../archive/masked_4K_fold/'
     print(f'fold 1/5')
     map_fn(flags, data_dir=train_ori_dir, k=1)
