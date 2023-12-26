@@ -28,115 +28,18 @@ import logging
 import matplotlib.pyplot as plt
 
 import torch.nn.functional as F
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
-import torchvision.models as models
-# from tqdm.notebook import tqdm
-from tqdm import tqdm
-from sklearn.utils import shuffle
-# from apex import amp
 
-import random
-
-import time
-
-from torch.optim.lr_scheduler import StepLR
-from torch.nn.parameter import Parameter
-
-from albumentations.augmentations.transforms import Lambda, ShiftScaleRotate, HorizontalFlip, Normalize, RandomBrightnessContrast, RandomResizedCrop
-from albumentations.pytorch import ToTensor
-from albumentations import Compose, OneOrOther
-
-import warnings
-import torch_xla
-import torch_xla.debug.metrics as met
-import torch_xla.distributed.data_parallel as dp
-import torch_xla.distributed.parallel_loader as pl
-import torch_xla.utils.utils as xu
-import torch_xla.core.xla_model as xm
-import torch_xla.distributed.xla_multiprocessing as xmp
-import torch_xla.test.test_utils as test_utils
 import warnings
 
 warnings.filterwarnings("ignore")
-from pretrainedmodels import se_resnext101_32x4d, se_resnet152, xception, inceptionv4, inceptionresnetv2
 from torchvision.models import resnet34, resnet50
-def get_My_resnet34():
-    model = resnet34(pretrained = True)
-    output_channels = model.fc.in_features
-    model = list(model.children())[:-2]
-    return model, output_channels
 
 def get_My_resnet50():
-    model = resnet50(pretrained = True)
+    model = resnet50(pretrained = False)
     output_channels = model.fc.in_features
     model = list(model.children())[:-2]
     return model, output_channels
 
-def get_My_se_resnet152():
-    model = se_resnet152(pretrained = None)
-    output_channels = model.last_linear.in_features
-    model = nn.Sequential(*list(model.children())[:-2])
-    return model, output_channels
-
-def get_My_se_resnext101_32x4d():
-    model = se_resnext101_32x4d()
-    output_channels = model.last_linear.in_features
-    model = nn.Sequential(*list(model.children())[:-2])
-    return model, output_channels
-
-def get_My_inceptionv4():
-    model = inceptionv4()
-    output_channels = model.last_linear.in_features
-    model = list(model.children())[:-2]
-    
-    model = nn.Sequential(*model)
-    return model, output_channels
-
-def get_My_inceptionresnetv2():
-    model = inceptionresnetv2()
-    output_channels = model.last_linear.in_features
-    model = list(model.children())[:-2]
-    
-    model = nn.Sequential(*model)
-    return model, output_channels
-
-def get_My_resnet34():
-    model = resnet34(pretrained = True)
-    output_channels = model.fc.in_features
-    model = list(model.children())[:-2]
-    return model, output_channels
-
-def get_My_resnet50():
-    model = resnet50(pretrained = True)
-    output_channels = model.fc.in_features
-    model = list(model.children())[:-2]
-    return model, output_channels
-
-def get_My_se_resnet152():
-    model = se_resnet152(pretrained = None)
-    output_channels = model.last_linear.in_features
-    model = nn.Sequential(*list(model.children())[:-2])
-    return model, output_channels
-
-def get_My_se_resnext101_32x4d():
-    model = se_resnext101_32x4d()
-    output_channels = model.last_linear.in_features
-    model = nn.Sequential(*list(model.children())[:-2])
-    return model, output_channels
-
-def get_My_inceptionv4():
-    model = inceptionv4()
-    output_channels = model.last_linear.in_features
-    model = list(model.children())[:-2]
-    
-    model = nn.Sequential(*model)
-    return model, output_channels
-
-def get_My_inceptionresnetv2():
-    model = inceptionresnetv2()
-    output_channels = model.last_linear.in_features
-    model = list(model.children())[:-2]
 
 class Pooling_attention(nn.Module):
   def __init__(self, input_channels, kernel_size = 1):
@@ -209,13 +112,23 @@ class BAA_New(nn.Module):
         self.gender_encoder = nn.Linear(1, gender_encode_length)
         self.gender_bn = nn.BatchNorm1d(gender_encode_length)
 
-        self.fc0 = nn.Linear(out_channels + gender_encode_length, 1024)
-        self.bn0 = nn.BatchNorm1d(1024)
+        self.fc = nn.Sequential(
+            nn.Linear(out_channels + gender_encode_length, 1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Linear(512, 1)
+        )
 
-        self.fc1 = nn.Linear(1024, 512)
-        self.bn1 = nn.BatchNorm1d(512)
-
-        self.output = nn.Linear(512, 1)
+        # self.fc0 = nn.Linear(out_channels + gender_encode_length, 1024)
+        # self.bn0 = nn.BatchNorm1d(1024)
+        #
+        # self.fc1 = nn.Linear(1024, 512)
+        # self.bn1 = nn.BatchNorm1d(512)
+        #
+        # self.output = nn.Linear(512, 1)
 
     def forward(self, image, gender):
         x = self.part_relation0(self.backbone0(image))
@@ -237,11 +150,13 @@ class BAA_New(nn.Module):
 
         x = torch.cat([x,  gender_encode], dim = 1)
 
-        x = F.relu(self.bn0(self.fc0(x)))
+        x = self.fc(x)
 
-        x = F.relu(self.bn1(self.fc1(x)))
-
-        x = self.output(x)
+        # x = F.relu(self.bn0(self.fc0(x)))
+        #
+        # x = F.relu(self.bn1(self.fc1(x)))
+        #
+        # x = self.output(x)
 
         return feature_map, gender_encode, image_feature, x
 
@@ -277,13 +192,23 @@ class BAA_Base(nn.Module):
         self.gender_encoder = nn.Linear(1, gender_encode_length)
         self.gender_bn = nn.BatchNorm1d(gender_encode_length)
 
-        self.fc0 = nn.Linear(out_channels + gender_encode_length, 1024)
-        self.bn0 = nn.BatchNorm1d(1024)
+        self.fc = nn.Sequential(
+            nn.Linear(out_channels + gender_encode_length, 1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Linear(512, 1)
+        )
 
-        self.fc1 = nn.Linear(1024, 512)
-        self.bn1 = nn.BatchNorm1d(512)
-
-        self.output = nn.Linear(512, 1)
+        # self.fc0 = nn.Linear(out_channels + gender_encode_length, 1024)
+        # self.bn0 = nn.BatchNorm1d(1024)
+        #
+        # self.fc1 = nn.Linear(1024, 512)
+        # self.bn1 = nn.BatchNorm1d(512)
+        #
+        # self.output = nn.Linear(512, 1)
 
     def forward(self, image, gender):
         x = self.part_relation0(self.backbone0(image))
@@ -305,11 +230,13 @@ class BAA_Base(nn.Module):
 
         x = torch.cat([x,  gender_encode], dim = 1)
 
-        x = F.relu(self.bn0(self.fc0(x)))
+        x = self.fc(x)
 
-        x = F.relu(self.bn1(self.fc1(x)))
-
-        x = self.output(x)
+        # x = F.relu(self.bn0(self.fc0(x)))
+        #
+        # x = F.relu(self.bn1(self.fc1(x)))
+        #
+        # x = self.output(x)
 
         return  x
 
