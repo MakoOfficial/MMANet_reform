@@ -195,7 +195,7 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
     net.train()
     for batch_idx, data in enumerate(train_loader):
         image, gender = data[0]
-        image, gender = image.cuda(), gender.cuda()
+        image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
         batch_size = len(data[1])
         label = data[1].cuda()
@@ -231,7 +231,7 @@ def evaluate_fn(net, val_loader):
             val_total_size += len(data[1])
 
             image, gender = data[0]
-            image, gender = image.cuda(), gender.cuda()
+            image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
             label = data[1].cuda()
 
@@ -349,7 +349,7 @@ def map_fn(flags, data_dir, k):
         mymodel.eval()
         for idx, data in enumerate(train_loader):
             image, gender = data[0]
-            image, gender = image.cuda(), gender.cuda()
+            image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
             batch_size = len(data[1])
             label = data[1].cuda()
@@ -382,7 +382,7 @@ def map_fn(flags, data_dir, k):
         mymodel.eval()
         for idx, data in enumerate(val_loader):
             image, gender = data[0]
-            image, gender = image.cuda(), gender.cuda()
+            image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
             batch_size = len(data[1])
             label = data[1].cuda()
@@ -421,9 +421,11 @@ if __name__ == "__main__":
     parser.add_argument('num_epochs', type=int)
     parser.add_argument('seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/'
+    save_path = '../../autodl-tmp'
     os.makedirs(save_path, exist_ok=True)
-
+    
+    prime_time = time.time()
+    
     model = BAA_New(32, *get_My_resnet50())
 
     flags = {}
@@ -436,7 +438,7 @@ if __name__ == "__main__":
     train_df = pd.read_csv(f'../archive/boneage-training-dataset.csv')
     boneage_mean = train_df['boneage'].mean()
     boneage_div = train_df['boneage'].std()
-    train_ori_dir = '../../autodl-tmp/K-fold/'
+    train_ori_dir = '../../autodl-tmp/masked_4K_fold/'
     # train_ori_dir = '../archive/masked_4K_fold/'
     print(f'fold 1/5')
     map_fn(flags, data_dir=train_ori_dir, k=1)
@@ -448,4 +450,7 @@ if __name__ == "__main__":
     map_fn(flags, data_dir=train_ori_dir, k=4)
     print(f'fold 5/5')
     map_fn(flags, data_dir=train_ori_dir, k=5)
-
+    
+    end_time = time.time()
+    
+    print(f'Summary time is {round((prime_time-end_time)/3600, 1)}')
