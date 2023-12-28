@@ -6,7 +6,7 @@ class TjNet(nn.Module):
     def __init__(self):
         super(TjNet, self).__init__()
         self.block1 = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=32, kernel_size=(3, 3), stride=(2, 2)),
+            nn.Conv2d(in_channels=3, out_channels=32, kernel_size=(3, 3), stride=(2, 2)),
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(1, 1)),
@@ -84,14 +84,14 @@ class TjNet(nn.Module):
         return self.featureCombine(torch.cat([graphFeature, genderFeature], dim=1))
         # return self.block5(self.block4(self.block3(self.block2(self.block1(x)))))
 
-data = torch.ones((10, 500, 500)).unsqueeze(1)
-print(data.shape)
+# data = torch.ones((10, 500, 500)).unsqueeze(1)
+# print(data.shape)
+# #
+# model = TjNet()
+# print(model(data, torch.ones(10, 1)).shape)
+# # cnt = 0
 #
-model = TjNet()
-print(model(data, torch.ones(10, 1)).shape)
-# cnt = 0
-
-MMANet = BAA_New(32, *get_My_resnet50())
-#
-print(sum(p.numel() for p in MMANet.parameters() if p.requires_grad))
+# MMANet = BAA_New(32, *get_My_resnet50())
+# #
+# print(sum(p.numel() for p in MMANet.parameters() if p.requires_grad))
 # print(sum(p.numel() for p in model.parameters() if p.requires_grad))
