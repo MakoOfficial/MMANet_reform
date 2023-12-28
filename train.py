@@ -259,10 +259,11 @@ def reduce_fn(vals):
 
 
 import time
-
+import TjNet
 
 def map_fn(flags, data_dir, k):
-    model_name = f'rsa50_fold{k}'
+    # model_name = f'rsa50_fold{k}'
+    model_name = f'TjNet_fold{k}'
     # path = f'{root}/{model_name}_fold{k}'
     # Sets a common random seed - both for initialization and ensuring graph is the same
     # seed_everything(seed=flags['seed'])
@@ -272,7 +273,8 @@ def map_fn(flags, data_dir, k):
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
     #   mymodel = BAA_base(32)
-    mymodel = BAA_New(32, *get_My_resnet50()).cuda()
+    # mymodel = BAA_New(32, *get_My_resnet50()).cuda()
+    mymodel = TjNet.TjNet().cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
