@@ -2,6 +2,14 @@ import model
 import os
 import torch
 from torch import nn
+import random
+import numpy as np
+
+seed=1
+random.seed(seed)
+os.environ['PYTHONHASHSEED'] = str(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
 
 # 保存原始的print函数，以便稍后调用它。
 rewrite_print = print

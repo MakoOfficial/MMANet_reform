@@ -5,7 +5,13 @@ import numpy as np
 import torch
 from torch.utils.data.dataset import T_co
 from torchvision import transforms
+import random
 
+seed=1
+random.seed(seed)
+os.environ['PYTHONHASHSEED'] = str(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
 
 class resize:
     """resize the pic, and remain the ratio,use 0 padding """

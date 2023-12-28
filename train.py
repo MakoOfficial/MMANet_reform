@@ -62,12 +62,17 @@ from utils.func import print
 
 warnings.filterwarnings("ignore")
 
+seed=1
+random.seed(seed)
+os.environ['PYTHONHASHSEED'] = str(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
 
-def seed_everything(seed=1234):
-    random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
+# def seed_everything(seed=1234):
+#     random.seed(seed)
+#     os.environ['PYTHONHASHSEED'] = str(seed)
+#     np.random.seed(seed)
+#     torch.manual_seed(seed)
     # torch.cuda.manual_seed(seed)
     # torch.backends.cudnn.deterministic = True
 
@@ -206,7 +211,7 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
         _, _, _, y_pred = net(image, gender)
         y_pred = y_pred.squeeze()
         label = label.squeeze()
-
+        print(y_pred)
         # print(y_pred, label)
         loss = loss_fn(y_pred, label)
         # backward,calculate gradients
@@ -260,7 +265,7 @@ def map_fn(flags, data_dir, k):
     model_name = f'rsa50_fold{k}'
     # path = f'{root}/{model_name}_fold{k}'
     # Sets a common random seed - both for initialization and ensuring graph is the same
-    seed_everything(seed=flags['seed'])
+    # seed_everything(seed=flags['seed'])
 
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
@@ -438,8 +443,8 @@ if __name__ == "__main__":
     train_df = pd.read_csv(f'../archive/boneage-training-dataset.csv')
     boneage_mean = train_df['boneage'].mean()
     boneage_div = train_df['boneage'].std()
-    train_ori_dir = '../../autodl-tmp/masked_4K_fold/'
-    # train_ori_dir = '../archive/masked_4K_fold/'
+    # train_ori_dir = '../../autodl-tmp/masked_4K_fold/'
+    train_ori_dir = '../archive/masked_1K_fold/'
     print(f'fold 1/5')
     map_fn(flags, data_dir=train_ori_dir, k=1)
     print(f'fold 2/5')

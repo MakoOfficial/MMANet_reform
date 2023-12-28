@@ -34,8 +34,14 @@ import warnings
 warnings.filterwarnings("ignore")
 from torchvision.models import resnet34, resnet50
 
+seed=1
+random.seed(seed)
+os.environ['PYTHONHASHSEED'] = str(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+
 def get_My_resnet50():
-    model = resnet50(pretrained = False)
+    model = resnet50(pretrained = True)
     output_channels = model.fc.in_features
     model = list(model.children())[:-2]
     return model, output_channels
