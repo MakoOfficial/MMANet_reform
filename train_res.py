@@ -41,14 +41,14 @@ import random
 
 import time
 
-from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import StepLR
 from torch.nn.parameter import Parameter
 
 from albumentations.augmentations.transforms import Lambda, Normalize, RandomBrightnessContrast
 from albumentations.augmentations.geometric.transforms import ShiftScaleRotate, HorizontalFlip
 from albumentations.pytorch.transforms import ToTensorV2
 from albumentations.augmentations.crops.transforms import RandomResizedCrop
-from albumentations import Compose, OneOrOther, Resize
+from albumentations import Compose, OneOrOther
 
 import albumentations
 
@@ -96,8 +96,7 @@ def sample_normalize(image, **kwargs):
 
 transform_train = Compose([
     # RandomBrightnessContrast(p = 0.8),
-    RandomResizedCrop(500, 500, (0.5, 1.0), p=0.5),
-    Resize(height=500, width=500),
+    RandomResizedCrop(512, 512, (0.5, 1.0), p=0.5),
     ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=20, border_mode=cv2.BORDER_CONSTANT, value=0.0,
                      p=0.8),
     # HorizontalFlip(p = 0.5),
@@ -143,10 +142,8 @@ class BAATrainDataset(Dataset):
     def __getitem__(self, index):
         row = self.df.iloc[index]
         num = int(row['id'])
-        # return (transform_train(image=read_image(f"{self.file_path}/{num}.png"))['image'],
-        #         Tensor([row['male']])), row['zscore']
         return (transform_train(image=read_image(f"{self.file_path}/{num}.png"))['image'],
-                Tensor([row['male']])), Tensor([row['boneage']]).to(torch.int64)
+                Tensor([row['male']])), row['zscore']
 
     def __len__(self):
         return len(self.df)
@@ -179,7 +176,7 @@ def create_data_loader(train_df, val_df, train_root, val_root):
 def L1_penalty(net, alpha):
     l1_penalty = torch.nn.L1Loss(size_average=False)
     loss = 0
-    for param in net.featureCombine.parameters():
+    for param in net.MLP.parameters():
         loss += torch.sum(torch.abs(param))
 
     return alpha * loss
@@ -207,7 +204,7 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
         image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
         batch_size = len(data[1])
-        label = F.one_hot(data[1]-1, num_classes=230).float().cuda()
+        label = data[1].cuda()
 
         # zero the parameter gradients
         optimizer.zero_grad()
@@ -215,7 +212,6 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
         y_pred = net(image, gender)
         y_pred = y_pred.squeeze()
         label = label.squeeze()
-        # print(y_pred)
         # print(y_pred, label)
         loss = loss_fn(y_pred, label)
         # backward,calculate gradients
@@ -246,7 +242,7 @@ def evaluate_fn(net, val_loader):
 
             y_pred = net(image, gender)
             # y_pred = net(image, gender)
-            y_pred = torch.argmax(y_pred.cpu(), dim=1)+1
+            y_pred = (y_pred.cpu() * boneage_div) + boneage_mean
             label = label.cpu()
 
             y_pred = y_pred.squeeze()
@@ -263,16 +259,20 @@ def reduce_fn(vals):
 
 
 import time
-from TjNet import TjNet
 
 
 def map_fn(flags, data_dir, k):
-    model_name = f'TjNet_fold{k}'
+    model_name = f'resnet50_fold{k}'
+    # path = f'{root}/{model_name}_fold{k}'
+    # Sets a common random seed - both for initialization and ensuring graph is the same
+    # seed_everything(seed=flags['seed'])
+
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
-    mymodel = TjNet().cuda()
+    #   mymodel = BAA_base(32)
+    mymodel = ResNet(32, *get_My_resnet50()).cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
@@ -300,19 +300,22 @@ def map_fn(flags, data_dir, k):
 
     ## Network, optimizer, and loss function creation
 
+    # Creates AlexNet for 10 classes
+    # Note: each process has its own identical copy of the model
+    #  Even though each model is created independently, they're also
+    #  created in the same way.
+
     global best_loss
     best_loss = float('inf')
     #   loss_fn =  nn.MSELoss(reduction = 'sum')
-    # loss_fn = nn.L1Loss(reduction='sum')
-    loss_fn = nn.BCELoss(reduction='sum')
+    loss_fn = nn.L1Loss(reduction='sum')
     lr = flags['lr']
 
-    wd = 4e-5
+    wd = 0
 
-    optimizer = torch.optim.Adam(mymodel.parameters(), lr=lr, weight_decay=wd, betas=(0.9, 0.999), eps=1e-8, )
+    optimizer = torch.optim.Adam(mymodel.parameters(), lr=lr, weight_decay=wd)
     #   optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay = wd)
-    # scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
-    scheduler = ReduceLROnPlateau(optimizer, factor=0.1, mode='min', patience=20, cooldown=10, min_lr=1e-5, verbose=False)
+    scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
 
     ## Trains
     for epoch in range(flags['num_epochs']):
@@ -333,10 +336,11 @@ def map_fn(flags, data_dir, k):
         # Sets net to eval and no grad context
         evaluate_fn(mymodel, val_loader)
 
+        scheduler.step()
+
         train_loss, val_mae = training_loss / total_size, mae_loss / val_total_size
         print(
             f'training loss is {train_loss}, val loss is {val_mae}, time : {time.time() - start_time}, lr:{optimizer.param_groups[0]["lr"]}')
-        scheduler.step(val_mae)
 
     torch.save(mymodel.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
     # if use multi-gpu
@@ -358,7 +362,7 @@ def map_fn(flags, data_dir, k):
 
             y_pred = mymodel(image, gender)
 
-            output = torch.argmax(y_pred.cpu(), dim=1)+1
+            output = (y_pred.cpu() * boneage_div) + boneage_mean
             label = (label.cpu() * boneage_div) + boneage_mean
 
             output = torch.squeeze(output)
@@ -391,7 +395,7 @@ def map_fn(flags, data_dir, k):
 
             y_pred = mymodel(image, gender)
 
-            output = torch.argmax(y_pred.cpu(), dim=1)+1
+            output = (y_pred.cpu() * boneage_div) + boneage_mean
             label = label.cpu()
 
             output = torch.squeeze(output)
@@ -411,15 +415,17 @@ def map_fn(flags, data_dir, k):
 
 
 if __name__ == "__main__":
+    from model import ResNet, get_My_resnet50
     import argparse
 
     parser = argparse.ArgumentParser()
+    parser.add_argument('model_type')
     parser.add_argument('lr', type=float)
     parser.add_argument('batch_size', type=int)
     parser.add_argument('num_epochs', type=int)
     parser.add_argument('seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/TjNet'
+    save_path = '../../autodl-tmp/resnet'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}

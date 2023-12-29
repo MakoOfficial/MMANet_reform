@@ -211,7 +211,6 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
         _, _, _, y_pred = net(image, gender)
         y_pred = y_pred.squeeze()
         label = label.squeeze()
-        print(y_pred)
         # print(y_pred, label)
         loss = loss_fn(y_pred, label)
         # backward,calculate gradients
@@ -259,11 +258,9 @@ def reduce_fn(vals):
 
 
 import time
-import TjNet
 
 def map_fn(flags, data_dir, k):
-    # model_name = f'rsa50_fold{k}'
-    model_name = f'TjNet_fold{k}'
+    model_name = f'rsa50_fold{k}'
     # path = f'{root}/{model_name}_fold{k}'
     # Sets a common random seed - both for initialization and ensuring graph is the same
     # seed_everything(seed=flags['seed'])
@@ -273,8 +270,7 @@ def map_fn(flags, data_dir, k):
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
     #   mymodel = BAA_base(32)
-    # mymodel = BAA_New(32, *get_My_resnet50()).cuda()
-    mymodel = TjNet.TjNet().cuda()
+    mymodel = BAA_New(32, *get_My_resnet50()).cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
@@ -422,18 +418,14 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('model_type')
     parser.add_argument('lr', type=float)
     parser.add_argument('batch_size', type=int)
     parser.add_argument('num_epochs', type=int)
     parser.add_argument('seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp'
+    save_path = '../../autodl-tmp/MMANet'
     os.makedirs(save_path, exist_ok=True)
-    
-    prime_time = time.time()
-    
-    model = BAA_New(32, *get_My_resnet50())
+
 
     flags = {}
     flags['lr'] = args.lr
@@ -445,8 +437,8 @@ if __name__ == "__main__":
     train_df = pd.read_csv(f'../archive/boneage-training-dataset.csv')
     boneage_mean = train_df['boneage'].mean()
     boneage_div = train_df['boneage'].std()
-    # train_ori_dir = '../../autodl-tmp/masked_4K_fold/'
-    train_ori_dir = '../archive/masked_1K_fold/'
+    train_ori_dir = '../../autodl-tmp/masked_4K_fold/'
+    # train_ori_dir = '../archive/masked_1K_fold/'
     print(f'fold 1/5')
     map_fn(flags, data_dir=train_ori_dir, k=1)
     print(f'fold 2/5')
@@ -457,7 +449,3 @@ if __name__ == "__main__":
     map_fn(flags, data_dir=train_ori_dir, k=4)
     print(f'fold 5/5')
     map_fn(flags, data_dir=train_ori_dir, k=5)
-    
-    end_time = time.time()
-    
-    print(f'Summary time is {round((prime_time-end_time)/3600, 1)}')
