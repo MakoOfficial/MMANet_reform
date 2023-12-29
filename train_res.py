@@ -419,7 +419,6 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('model_type')
     parser.add_argument('lr', type=float)
     parser.add_argument('batch_size', type=int)
     parser.add_argument('num_epochs', type=int)
