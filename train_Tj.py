@@ -97,7 +97,7 @@ def sample_normalize(image, **kwargs):
 transform_train = Compose([
     # RandomBrightnessContrast(p = 0.8),
     RandomResizedCrop(500, 500, (0.5, 1.0), p=0.5),
-    Resize(height=500, width=500),
+    # Resize(height=500, width=500),
     ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=20, border_mode=cv2.BORDER_CONSTANT, value=0.0,
                      p=0.8),
     # HorizontalFlip(p = 0.5),
@@ -122,7 +122,7 @@ transform_test = Compose([
 ])
 
 
-def read_image(path):
+def read_image(path, image_size=500):
     img = Image.open(path)
     return np.array(img.convert("RGB"))
 
@@ -359,7 +359,7 @@ def map_fn(flags, data_dir, k):
             y_pred = mymodel(image, gender)
 
             output = torch.argmax(y_pred.cpu(), dim=1)+1
-            label = (label.cpu() * boneage_div) + boneage_mean
+            label = label.cpu()
 
             output = torch.squeeze(output)
             label = torch.squeeze(label)
@@ -432,7 +432,7 @@ if __name__ == "__main__":
     train_df = pd.read_csv(f'../archive/boneage-training-dataset.csv')
     boneage_mean = train_df['boneage'].mean()
     boneage_div = train_df['boneage'].std()
-    train_ori_dir = '../../autodl-tmp/masked_4K_fold/'
+    train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
     # train_ori_dir = '../archive/masked_1K_fold/'
     print(f'fold 1/5')
     map_fn(flags, data_dir=train_ori_dir, k=1)
