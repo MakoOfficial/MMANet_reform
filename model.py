@@ -41,7 +41,7 @@ np.random.seed(seed)
 torch.manual_seed(seed)
 
 def get_My_resnet50():
-    model = resnet50(pretrained = True)
+    model = resnet50(pretrained = False)
     output_channels = model.fc.in_features
     model = list(model.children())[:-2]
     return model, output_channels
