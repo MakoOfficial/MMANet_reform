@@ -48,7 +48,7 @@ from albumentations.augmentations.transforms import Lambda, Normalize, RandomBri
 from albumentations.augmentations.geometric.transforms import ShiftScaleRotate, HorizontalFlip
 from albumentations.pytorch.transforms import ToTensorV2
 from albumentations.augmentations.crops.transforms import RandomResizedCrop
-from albumentations import Compose, OneOrOther
+from albumentations import Compose, OneOrOther, Resize
 
 import albumentations
 
@@ -105,6 +105,7 @@ def sample_normalize(image, **kwargs):
 
 transform_train = Compose([
     # RandomBrightnessContrast(p = 0.8),
+    Resize(height=512, width=512),
     RandomResizedCrop(512, 512, (0.5, 1.0), p=0.5),
     ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=20, border_mode=cv2.BORDER_CONSTANT, value=0.0,
                      p=0.8),
@@ -433,7 +434,7 @@ if __name__ == "__main__":
     parser.add_argument('seed', type=int)
     args = parser.parse_args()
     save_path = '../../autodl-tmp/MMANet_ori'
-    # os.makedirs(save_path, exist_ok=True)
+    os.makedirs(save_path, exist_ok=True)
 
 
     flags = {}
@@ -446,8 +447,9 @@ if __name__ == "__main__":
     train_df = pd.read_csv(f'../archive/boneage-training-dataset.csv')
     boneage_mean = train_df['boneage'].mean()
     boneage_div = train_df['boneage'].std()
-    # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
-    train_ori_dir = '../archive/masked_1K_fold/'
+    # train_ori_dir = '../../autodl-tmp/masked_4K_fold/'
+    train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
+    # train_ori_dir = '../archive/masked_1K_fold/'
     print(f'fold 1/5')
     map_fn(flags, data_dir=train_ori_dir, k=1)
     print(f'fold 2/5')
