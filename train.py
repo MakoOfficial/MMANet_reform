@@ -62,11 +62,20 @@ from utils.func import print
 
 warnings.filterwarnings("ignore")
 
-seed=1
-random.seed(seed)
-os.environ['PYTHONHASHSEED'] = str(seed)
-np.random.seed(seed)
+seed = 1#seed必须是int，可以自行设置
 torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)#让显卡产生的随机数一致
+torch.cuda.manual_seed_all(seed)#多卡模式下，让所有显卡生成的随机数一致？这个待验证
+np.random.seed(seed)#numpy产生的随机数一致
+random.seed(seed)
+
+# CUDA中的一些运算，如对sparse的CUDA张量与dense的CUDA张量调用torch.bmm()，它通常使用不确定性算法。
+# 为了避免这种情况，就要将这个flag设置为True，让它使用确定的实现。
+torch.backends.cudnn.deterministic = True
+
+# 设置这个flag可以让内置的cuDNN的auto-tuner自动寻找最适合当前配置的高效算法，来达到优化运行效率的问题。
+# 但是由于噪声和不同的硬件条件，即使是同一台机器，benchmark都可能会选择不同的算法。为了消除这个随机性，设置为 False
+torch.backends.cudnn.benchmark = False
 
 # def seed_everything(seed=1234):
 #     random.seed(seed)
@@ -424,7 +433,7 @@ if __name__ == "__main__":
     parser.add_argument('seed', type=int)
     args = parser.parse_args()
     save_path = '../../autodl-tmp/MMANet_ori'
-    os.makedirs(save_path, exist_ok=True)
+    # os.makedirs(save_path, exist_ok=True)
 
 
     flags = {}
@@ -437,8 +446,8 @@ if __name__ == "__main__":
     train_df = pd.read_csv(f'../archive/boneage-training-dataset.csv')
     boneage_mean = train_df['boneage'].mean()
     boneage_div = train_df['boneage'].std()
-    train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
-    # train_ori_dir = '../archive/masked_1K_fold/'
+    # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
+    train_ori_dir = '../archive/masked_1K_fold/'
     print(f'fold 1/5')
     map_fn(flags, data_dir=train_ori_dir, k=1)
     print(f'fold 2/5')
