@@ -105,7 +105,7 @@ def sample_normalize(image, **kwargs):
 
 transform_train = Compose([
     # RandomBrightnessContrast(p = 0.8),
-    Resize(height=512, width=512),
+    # Resize(height=512, width=512),
     RandomResizedCrop(512, 512, (0.5, 1.0), p=0.5),
     ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=20, border_mode=cv2.BORDER_CONSTANT, value=0.0,
                      p=0.8),
@@ -131,11 +131,6 @@ transform_test = Compose([
 ])
 
 
-def read_image(path):
-    img = Image.open(path)
-    return np.array(img.convert("RGB"))
-
-
 class BAATrainDataset(Dataset):
     def __init__(self, df, file_path):
         def preprocess_df(df):
@@ -152,7 +147,7 @@ class BAATrainDataset(Dataset):
     def __getitem__(self, index):
         row = self.df.iloc[index]
         num = int(row['id'])
-        return (transform_train(image=read_image(f"{self.file_path}/{num}.png"))['image'],
+        return (transform_train(image=cv2.imread(f"{self.file_path}/{num}.png", cv2.IMREAD_COLOR))['image'],
                 Tensor([row['male']])), row['zscore']
 
     def __len__(self):
@@ -172,7 +167,7 @@ class BAAValDataset(Dataset):
 
     def __getitem__(self, index):
         row = self.df.iloc[index]
-        return (transform_val(image=read_image(f"{self.file_path}/{int(row['id'])}.png"))['image'],
+        return (transform_val(image=cv2.imread(f"{self.file_path}/{int(row['id'])}.png", cv2.IMREAD_COLOR))['image'],
                 Tensor([row['male']])), row['boneage']
 
     def __len__(self):
@@ -270,7 +265,7 @@ def reduce_fn(vals):
 import time
 
 def map_fn(flags, data_dir, k):
-    model_name = f'rsa50_fold{k}'
+    model_name = f'MMANet_MaskAll_{k}'
     # path = f'{root}/{model_name}_fold{k}'
     # Sets a common random seed - both for initialization and ensuring graph is the same
     # seed_everything(seed=flags['seed'])
@@ -433,30 +428,30 @@ if __name__ == "__main__":
     parser.add_argument('num_epochs', type=int)
     parser.add_argument('seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/MMANet_ori'
+    save_path = '../../autodl-tmp/MMANet_MaskAll'
     os.makedirs(save_path, exist_ok=True)
 
 
     flags = {}
     flags['lr'] = args.lr
     flags['batch_size'] = args.batch_size
-    flags['num_workers'] = 2
+    flags['num_workers'] = 8
     flags['num_epochs'] = args.num_epochs
     flags['seed'] = args.seed
 
     train_df = pd.read_csv(f'../archive/boneage-training-dataset.csv')
     boneage_mean = train_df['boneage'].mean()
     boneage_div = train_df['boneage'].std()
-    # train_ori_dir = '../../autodl-tmp/masked_4K_fold/'
-    train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
+    train_ori_dir = '../../autodl-tmp/MaskAll_fold/'
+    # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
     # train_ori_dir = '../archive/masked_1K_fold/'
     print(f'fold 1/5')
     map_fn(flags, data_dir=train_ori_dir, k=1)
-    print(f'fold 2/5')
-    map_fn(flags, data_dir=train_ori_dir, k=2)
-    print(f'fold 3/5')
-    map_fn(flags, data_dir=train_ori_dir, k=3)
-    print(f'fold 4/5')
-    map_fn(flags, data_dir=train_ori_dir, k=4)
-    print(f'fold 5/5')
-    map_fn(flags, data_dir=train_ori_dir, k=5)
+    # print(f'fold 2/5')
+    # map_fn(flags, data_dir=train_ori_dir, k=2)
+    # print(f'fold 3/5')
+    # map_fn(flags, data_dir=train_ori_dir, k=3)
+    # print(f'fold 4/5')
+    # map_fn(flags, data_dir=train_ori_dir, k=4)
+    # print(f'fold 5/5')
+    # map_fn(flags, data_dir=train_ori_dir, k=5)

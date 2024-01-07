@@ -89,7 +89,7 @@ class TjNet(nn.Module):
             nn.Linear(in_features=1024, out_features=512),
             nn.Dropout(0.5),
             nn.Linear(in_features=512, out_features=230),
-            nn.Softmax()
+            # nn.Softmax()
         )
 
     def forward(self, x, gender):

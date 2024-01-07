@@ -98,7 +98,7 @@ def sample_normalize(image, **kwargs):
 transform_train = Compose([
     # RandomBrightnessContrast(p = 0.8),
     RandomResizedCrop(500, 500, (0.5, 1.0), p=0.5),
-    # Resize(height=500, width=500),
+    Resize(height=500, width=500),
     ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=20, border_mode=cv2.BORDER_CONSTANT, value=0.0,
                      p=0.8),
     # HorizontalFlip(p = 0.5),
@@ -113,6 +113,7 @@ transform_train = Compose([
 ])
 
 transform_val = Compose([
+    Resize(height=500, width=500),
     Lambda(image=sample_normalize),
     ToTensorV2(),
 ])
@@ -121,11 +122,6 @@ transform_test = Compose([
     Lambda(image=sample_normalize),
     ToTensorV2(),
 ])
-
-
-def read_image(path, image_size=500):
-    img = Image.open(path)
-    return np.array(img.convert("RGB"))
 
 
 class BAATrainDataset(Dataset):
@@ -146,8 +142,9 @@ class BAATrainDataset(Dataset):
         num = int(row['id'])
         # return (transform_train(image=read_image(f"{self.file_path}/{num}.png"))['image'],
         #         Tensor([row['male']])), row['zscore']
-        return (transform_train(image=read_image(f"{self.file_path}/{num}.png"))['image'],
-                Tensor([row['male']])), Tensor([row['boneage']]).to(torch.int64)
+        return (transform_train(image=cv2.imread(f"{self.file_path}/{num}.png", cv2.IMREAD_COLOR))['image'],
+                # Tensor([row['male']])), Tensor([row['boneage']]).to(torch.int64)
+                Tensor([row['male']])), row['boneage']
 
     def __len__(self):
         return len(self.df)
@@ -166,7 +163,7 @@ class BAAValDataset(Dataset):
 
     def __getitem__(self, index):
         row = self.df.iloc[index]
-        return (transform_val(image=read_image(f"{self.file_path}/{int(row['id'])}.png"))['image'],
+        return (transform_val(image=cv2.imread(f"{self.file_path}/{int(row['id'])}.png", cv2.IMREAD_COLOR))['image'],
                 Tensor([row['male']])), row['boneage']
 
     def __len__(self):
@@ -208,7 +205,8 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
         image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
         batch_size = len(data[1])
-        label = F.one_hot(data[1]-1, num_classes=230).float().cuda()
+        # label = F.one_hot(data[1]-1, num_classes=230).float().cuda()
+        label = (data[1] - 1).type(torch.LongTensor).cuda()
 
         # zero the parameter gradients
         optimizer.zero_grad()
@@ -247,8 +245,7 @@ def evaluate_fn(net, val_loader):
 
             y_pred = net(image, gender)
             # y_pred = net(image, gender)
-            y_pred = torch.argmax(y_pred.cpu(), dim=1)+1
-            label = label.cpu()
+            y_pred = torch.argmax(y_pred, dim=1)+1
 
             y_pred = y_pred.squeeze()
             label = label.squeeze()
@@ -268,7 +265,7 @@ from TjNet import TjNet
 
 
 def map_fn(flags, data_dir, k):
-    model_name = f'TjNet_fold{k}'
+    model_name = f'TjNet_CE_MaskAll_{k}'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
@@ -359,8 +356,7 @@ def map_fn(flags, data_dir, k):
 
             y_pred = mymodel(image, gender)
 
-            output = torch.argmax(y_pred.cpu(), dim=1)+1
-            label = label.cpu()
+            output = torch.argmax(y_pred, dim=1)+1
 
             output = torch.squeeze(output)
             label = torch.squeeze(label)
@@ -392,8 +388,7 @@ def map_fn(flags, data_dir, k):
 
             y_pred = mymodel(image, gender)
 
-            output = torch.argmax(y_pred.cpu(), dim=1)+1
-            label = label.cpu()
+            output = torch.argmax(y_pred, dim=1)+1
 
             output = torch.squeeze(output)
             label = torch.squeeze(label)
@@ -420,29 +415,29 @@ if __name__ == "__main__":
     parser.add_argument('num_epochs', type=int)
     parser.add_argument('seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/TjNet_seed'
+    save_path = '../../autodl-tmp/TjNet_MaskAll'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
     flags['lr'] = args.lr
     flags['batch_size'] = args.batch_size
-    flags['num_workers'] = 2
+    flags['num_workers'] = 8
     flags['num_epochs'] = args.num_epochs
     flags['seed'] = args.seed
 
     train_df = pd.read_csv(f'../archive/boneage-training-dataset.csv')
     boneage_mean = train_df['boneage'].mean()
     boneage_div = train_df['boneage'].std()
-    train_ori_dir = '../../autodl-tmp/masked_4K_fold/'
+    train_ori_dir = '../../autodl-tmp/MaskAll_fold/'
     # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
     # train_ori_dir = '../archive/masked_1K_fold/'
     print(f'fold 1/5')
     map_fn(flags, data_dir=train_ori_dir, k=1)
-    print(f'fold 2/5')
-    map_fn(flags, data_dir=train_ori_dir, k=2)
-    print(f'fold 3/5')
-    map_fn(flags, data_dir=train_ori_dir, k=3)
-    print(f'fold 4/5')
-    map_fn(flags, data_dir=train_ori_dir, k=4)
-    print(f'fold 5/5')
-    map_fn(flags, data_dir=train_ori_dir, k=5)
+    # print(f'fold 2/5')
+    # map_fn(flags, data_dir=train_ori_dir, k=2)
+    # print(f'fold 3/5')
+    # map_fn(flags, data_dir=train_ori_dir, k=3)
+    # print(f'fold 4/5')
+    # map_fn(flags, data_dir=train_ori_dir, k=4)
+    # print(f'fold 5/5')
+    # map_fn(flags, data_dir=train_ori_dir, k=5)
