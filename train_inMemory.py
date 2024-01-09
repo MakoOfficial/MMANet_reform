@@ -59,7 +59,7 @@ transform_init = transforms.ToTensor()
 
 def read_a_img(img_path):
     # input channels is 3
-    img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+    img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
     return transform_init(img)
 
 
@@ -91,10 +91,10 @@ def train_fn(net, train_loader, loss_fn, optimizer):
     net.train()
     for batch_idx, data in enumerate(train_loader):
         image, gender, label = data
-        image = transform_train(image)
+        image = torch.repeat_interleave(transform_train(image), repeats=3, dim=3)
         image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
         label = (label - 1).type(torch.LongTensor).cuda()
-        batch_size = len(label.shape[0])
+        batch_size = label.shape[0]
 
         optimizer.zero_grad()
         # forward
@@ -124,9 +124,11 @@ def evaluate_fn(net, val_loader):
     with torch.no_grad():
         for batch_idx, data in enumerate(val_loader):
             image, gender, label = data
+            image = torch.repeat_interleave(image, repeats=3, dim=3)
             image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
             label = label.cuda()
+            batch_size = label.shape[0]
 
             y_pred = net(image, gender)
             # y_pred = net(image, gender)
@@ -138,6 +140,7 @@ def evaluate_fn(net, val_loader):
             batch_loss = F.l1_loss(y_pred, label, reduction='sum').item()
             # print(batch_loss/len(data[1]))
             mae_loss += batch_loss
+            val_total_size += batch_size
     return mae_loss
 
 
@@ -213,11 +216,13 @@ def map_fn(flags):
         total_loss = 0.
         mymodel.eval()
         for idx, data in enumerate(train_loader):
-            image, gender = data[0]
+            image, gender, label = data
+            image = torch.repeat_interleave(image, repeats=3, dim=3)
             image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
-            batch_size = len(data[1])
-            label = data[1].cuda()
+            label = label.cuda()
+
+            batch_size = label.shape[0]
 
             y_pred = mymodel(image, gender)
 
@@ -245,11 +250,13 @@ def map_fn(flags):
         val_loss = 0.
         mymodel.eval()
         for idx, data in enumerate(val_loader):
-            image, gender = data[0]
+            image, gender, label = data
+            image = torch.repeat_interleave(image, repeats=3, dim=3)
             image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
-            batch_size = len(data[1])
-            label = data[1].cuda()
+            label = label.cuda()
+
+            batch_size = label.shape[0]
 
             y_pred = mymodel(image, gender)
 
@@ -310,13 +317,14 @@ if __name__ == "__main__":
     flags['num_epochs'] = args.num_epochs
     flags['seed'] = 1
 
-    data_dir = '../../archive/'
+    data_dir = '../archive_mask/archive'
 
     train_csv = os.path.join(data_dir, "train.csv")
     valid_csv = os.path.join(data_dir, "valid.csv")
     train_path = os.path.join(data_dir, "train")
     valid_path = os.path.join(data_dir, "valid")
     time1 = time.time()
+    print(f'start load dataset')
     trainDataset = getDataset(train_path, train_csv)
     validDataset = getDataset(valid_path, valid_csv)
 
