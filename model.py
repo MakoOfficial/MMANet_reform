@@ -50,7 +50,7 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 def get_My_resnet50():
-    model = resnet50(pretrained = False)
+    model = resnet50(pretrained = True)
     output_channels = model.fc.in_features
     model = list(model.children())[:-2]
     return model, output_channels
@@ -75,7 +75,8 @@ class ResNet(nn.Module):
             nn.Linear(1024, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Linear(512, 1)
+            # nn.Linear(512, 1)
+            nn.Linear(512, 230)
         )
 
     def forward(self, x, gender):
