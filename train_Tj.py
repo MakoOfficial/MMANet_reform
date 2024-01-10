@@ -58,8 +58,7 @@ def randomErase(image, **kwargs):
 
 def sample_normalize(image, **kwargs):
     image = image / 255
-    channel = image.shape[2]
-    mean, std = image.reshape((-1, channel)).mean(axis=0), image.reshape((-1, channel)).std(axis=0)
+    mean, std = image.reshape((-1, 1)).mean(axis=0), image.reshape((-1, 1)).std(axis=0)
     return (image - mean) / (std + 1e-3)
 
 
@@ -106,7 +105,7 @@ class BAATrainDataset(Dataset):
         num = int(row['id'])
         # return (transform_train(image=read_image(f"{self.file_path}/{num}.png"))['image'],
         #         Tensor([row['male']])), row['zscore']
-        return (transform_train(image=cv2.imread(f"{self.file_path}/{num}.png", cv2.IMREAD_COLOR))['image'],
+        return (transform_train(image=cv2.imread(f"{self.file_path}/{num}.png", cv2.IMREAD_GRAYSCALE))['image'],
                 # Tensor([row['male']])), Tensor([row['boneage']]).to(torch.int64)
                 Tensor([row['male']])), row['boneage']
 
@@ -127,7 +126,7 @@ class BAAValDataset(Dataset):
 
     def __getitem__(self, index):
         row = self.df.iloc[index]
-        return (transform_val(image=cv2.imread(f"{self.file_path}/{int(row['id'])}.png", cv2.IMREAD_COLOR))['image'],
+        return (transform_val(image=cv2.imread(f"{self.file_path}/{int(row['id'])}.png", cv2.IMREAD_GRAYSCALE))['image'],
                 Tensor([row['male']])), row['boneage']
 
     def __len__(self):
@@ -225,7 +224,7 @@ from TjNet import TjNet
 
 
 def map_fn(flags):
-    model_name = f'TjNet_CE_MaskAll'
+    model_name = f'TjNet_CE_All'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
@@ -234,7 +233,7 @@ def map_fn(flags):
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
-    train_set, val_set = create_data_loader(train_df, val_df, train_path, val_path)
+    train_set, val_set = create_data_loader(train_df, valid_df, train_path, valid_path)
     print(train_set.__len__())
     # Creates dataloaders, which load data in batches
     # Note: test loader is not shuffled or sampled
@@ -243,13 +242,17 @@ def map_fn(flags):
         batch_size=flags['batch_size'],
         shuffle=True,
         num_workers=flags['num_workers'],
-        drop_last=True)
+        drop_last=True,
+        pin_memory=True
+    )
 
     val_loader = torch.utils.data.DataLoader(
         val_set,
         batch_size=flags['batch_size'],
         shuffle=False,
-        num_workers=flags['num_workers'])
+        num_workers=flags['num_workers'],
+        pin_memory=True
+    )
 
     ## Network, optimizer, and loss function creation
 
@@ -299,14 +302,23 @@ def map_fn(flags):
     # if use multi-gpu
     # torch.save(mymodel.module.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
 
+    train_test_dataset = BAAValDataset(train_df, train_path)
+    train_test_dataloader = torch.utils.data.DataLoader(
+        train_test_dataset,
+        batch_size=flags['batch_size'],
+        shuffle=False,
+        num_workers=flags['num_workers'],
+        pin_memory=True
+    )
+
     # save log
     with torch.no_grad():
         train_record = [['label', 'pred']]
-        train_record_path = os.path.join(save_path, f"train.csv")
+        train_record_path = os.path.join(save_path, f"train_result.csv")
         train_length = 0.
         total_loss = 0.
         mymodel.eval()
-        for idx, data in enumerate(train_loader):
+        for idx, data in enumerate(train_test_dataloader):
             image, gender = data[0]
             image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
@@ -334,7 +346,7 @@ def map_fn(flags):
 
     with torch.no_grad():
         val_record = [['label', 'pred']]
-        val_record_path = os.path.join(save_path, f"val.csv")
+        val_record_path = os.path.join(save_path, f"val_result.csv")
         val_length = 0.
         val_loss = 0.
         mymodel.eval()
@@ -348,12 +360,12 @@ def map_fn(flags):
             y_pred = mymodel(image, gender)
 
             output = torch.argmax(y_pred, dim=1)+1
-
-            output = torch.squeeze(output)
-            label = torch.squeeze(label)
+            if output.shape[0] != 1:
+                output = torch.squeeze(output)
+                label = torch.squeeze(label)
             for i in range(output.shape[0]):
                 val_record.append([label[i].item(), round(output[i].item(), 2)])
-            assert output.shape == label.shape, "pred and output isn't the same shape"
+            # assert output.shape == label.shape, "pred and output isn't the same shape"
 
             val_loss += F.l1_loss(output, label, reduction='sum').item()
             val_length += batch_size
@@ -372,9 +384,9 @@ if __name__ == "__main__":
     parser.add_argument('lr', type=float)
     parser.add_argument('batch_size', type=int)
     parser.add_argument('num_epochs', type=int)
-    parser.add_argument('seed', type=int)
+    parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/TjNet_MaskAll'
+    save_path = '../../autodl-tmp/TjNet_All'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
@@ -382,17 +394,16 @@ if __name__ == "__main__":
     flags['batch_size'] = args.batch_size
     flags['num_workers'] = 8
     flags['num_epochs'] = args.num_epochs
-    flags['seed'] = args.seed
+    flags['seed'] = 1
 
-    # train_df = pd.read_csv(f'../archive/boneage-training-dataset.csv')
-    # boneage_mean = train_df['boneage'].mean()
-    # boneage_div = train_df['boneage'].std()
+    data_dir = '../../autodl-tmp/archive'
 
-    data_dir = '../../autodl-tmp/ori/'
-    train_df = pd.read_csv(os.path.join(data_dir, 'train.csv'))
-    val_df = pd.read_csv(os.path.join(data_dir, 'valid.csv'))
-    train_path = os.path.join(data_dir, 'train')
-    val_path = os.path.join(data_dir, 'valid')
+    train_csv = os.path.join(data_dir, "train.csv")
+    train_df = pd.read_csv(train_csv)
+    valid_csv = os.path.join(data_dir, "valid.csv")
+    valid_df = pd.read_csv(valid_csv)
+    train_path = os.path.join(data_dir, "train")
+    valid_path = os.path.join(data_dir, "valid")
 
     # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
     # train_ori_dir = '../archive/masked_1K_fold/'

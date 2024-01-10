@@ -264,8 +264,8 @@ def reduce_fn(vals):
 
 import time
 
-def map_fn(flags, data_dir, k):
-    model_name = f'MMANet_MaskAll_{k}'
+def map_fn(flags):
+    model_name = f'MMANet_All'
     # path = f'{root}/{model_name}_fold{k}'
     # Sets a common random seed - both for initialization and ensuring graph is the same
     # seed_everything(seed=flags['seed'])
@@ -279,11 +279,7 @@ def map_fn(flags, data_dir, k):
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
-    fold_path = os.path.join(data_dir, f'fold_{k}')
-    train_df = pd.read_csv(os.path.join(fold_path, 'train.csv'))
-    val_df = pd.read_csv(os.path.join(fold_path, 'valid.csv'))
-
-    train_set, val_set = create_data_loader(train_df, val_df, os.path.join(fold_path, 'train'), os.path.join(fold_path, 'valid'))
+    train_set, val_set = create_data_loader(train_df, valid_df, train_path, valid_path)
     print(train_set.__len__())
     # Creates dataloaders, which load data in batches
     # Note: test loader is not shuffled or sampled
@@ -292,13 +288,17 @@ def map_fn(flags, data_dir, k):
         batch_size=flags['batch_size'],
         shuffle=True,
         num_workers=flags['num_workers'],
-        drop_last=True)
+        drop_last=True,
+        pin_memory=True
+    )
 
     val_loader = torch.utils.data.DataLoader(
         val_set,
         batch_size=flags['batch_size'],
         shuffle=False,
-        num_workers=flags['num_workers'])
+        num_workers=flags['num_workers'],
+        pin_memory=True
+    )
 
     ## Network, optimizer, and loss function creation
 
@@ -338,24 +338,36 @@ def map_fn(flags, data_dir, k):
         # Sets net to eval and no grad context
         evaluate_fn(mymodel, val_loader)
 
-        scheduler.step()
 
         train_loss, val_mae = training_loss / total_size, mae_loss / val_total_size
+        if val_mae < best_loss:
+            best_loss = val_mae
         print(
             f'training loss is {train_loss}, val loss is {val_mae}, time : {time.time() - start_time}, lr:{optimizer.param_groups[0]["lr"]}')
+        scheduler.step()
 
+    print(f'best loss: {best_loss}')
     torch.save(mymodel.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
     # if use multi-gpu
     # torch.save(mymodel.module.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
 
+    train_test_dataset = BAAValDataset(train_df, train_path)
+    train_test_dataloader = torch.utils.data.DataLoader(
+        train_test_dataset,
+        batch_size=flags['batch_size'],
+        shuffle=False,
+        num_workers=flags['num_workers'],
+        pin_memory=True
+    )
+
     # save log
     with torch.no_grad():
         train_record = [['label', 'pred']]
-        train_record_path = os.path.join(save_path, f"train{k}.csv")
+        train_record_path = os.path.join(save_path, f"train_result.csv")
         train_length = 0.
         total_loss = 0.
         mymodel.eval()
-        for idx, data in enumerate(train_loader):
+        for idx, data in enumerate(train_test_dataloader):
             image, gender = data[0]
             image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
@@ -365,7 +377,7 @@ def map_fn(flags, data_dir, k):
             _, _, _, y_pred = mymodel(image, gender)
 
             output = (y_pred.cpu() * boneage_div) + boneage_mean
-            label = (label.cpu() * boneage_div) + boneage_mean
+            label = label.cpu()
 
             output = torch.squeeze(output)
             label = torch.squeeze(label)
@@ -375,8 +387,8 @@ def map_fn(flags, data_dir, k):
 
             total_loss += F.l1_loss(output, label, reduction='sum').item()
             train_length += batch_size
-        print(f"length :{train_length}")
-        print(f'{k} fold final training loss: {round(total_loss / train_length, 3)}')
+        print(f"training dataset length :{train_length}")
+        print(f'final training loss: {round(total_loss / train_length, 3)}')
         with open(train_record_path, 'w', newline='') as csvfile:
             writer_train = csv.writer(csvfile)
             for row in train_record:
@@ -384,7 +396,7 @@ def map_fn(flags, data_dir, k):
 
     with torch.no_grad():
         val_record = [['label', 'pred']]
-        val_record_path = os.path.join(save_path, f"val{k}.csv")
+        val_record_path = os.path.join(save_path, f"val_result.csv")
         val_length = 0.
         val_loss = 0.
         mymodel.eval()
@@ -400,16 +412,17 @@ def map_fn(flags, data_dir, k):
             output = (y_pred.cpu() * boneage_div) + boneage_mean
             label = label.cpu()
 
-            output = torch.squeeze(output)
-            label = torch.squeeze(label)
+            if output.shape[0] != 1:
+                output = torch.squeeze(output)
+                label = torch.squeeze(label)
             for i in range(output.shape[0]):
                 val_record.append([label[i].item(), round(output[i].item(), 2)])
-            assert output.shape == label.shape, "pred and output isn't the same shape"
+            # assert output.shape == label.shape, "pred and output isn't the same shape"
 
             val_loss += F.l1_loss(output, label, reduction='sum').item()
             val_length += batch_size
-        print(f"length :{val_length}")
-        print(f'{k} fold final val loss: {round(val_loss / val_length, 3)}')
+        print(f"valid dataset length :{val_length}")
+        print(f'final val loss: {round(val_loss / val_length, 3)}')
         with open(val_record_path, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
             for row in val_record:
@@ -418,17 +431,15 @@ def map_fn(flags, data_dir, k):
 
 if __name__ == "__main__":
     from model import BAA_New, get_My_resnet50
-    from utils import datasets, func
-    from sklearn.model_selection import KFold
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument('lr', type=float)
     parser.add_argument('batch_size', type=int)
     parser.add_argument('num_epochs', type=int)
-    parser.add_argument('seed', type=int)
+    parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/MMANet_MaskAll'
+    save_path = '../../autodl-tmp/MMANet_All'
     os.makedirs(save_path, exist_ok=True)
 
 
@@ -437,21 +448,20 @@ if __name__ == "__main__":
     flags['batch_size'] = args.batch_size
     flags['num_workers'] = 8
     flags['num_epochs'] = args.num_epochs
-    flags['seed'] = args.seed
+    flags['seed'] = 1
 
-    train_df = pd.read_csv(f'../archive/boneage-training-dataset.csv')
+    data_dir = '../../autodl-tmp/archive'
+
+    train_csv = os.path.join(data_dir, "train.csv")
+    train_df = pd.read_csv(train_csv)
     boneage_mean = train_df['boneage'].mean()
     boneage_div = train_df['boneage'].std()
-    train_ori_dir = '../../autodl-tmp/MaskAll_fold/'
+    valid_csv = os.path.join(data_dir, "valid.csv")
+    valid_df = pd.read_csv(valid_csv)
+    train_path = os.path.join(data_dir, "train")
+    valid_path = os.path.join(data_dir, "valid")
+
     # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
     # train_ori_dir = '../archive/masked_1K_fold/'
-    print(f'fold 1/5')
-    map_fn(flags, data_dir=train_ori_dir, k=1)
-    # print(f'fold 2/5')
-    # map_fn(flags, data_dir=train_ori_dir, k=2)
-    # print(f'fold 3/5')
-    # map_fn(flags, data_dir=train_ori_dir, k=3)
-    # print(f'fold 4/5')
-    # map_fn(flags, data_dir=train_ori_dir, k=4)
-    # print(f'fold 5/5')
-    # map_fn(flags, data_dir=train_ori_dir, k=5)
+    print(f'start')
+    map_fn(flags)

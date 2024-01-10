@@ -21,7 +21,7 @@ class TjNet(nn.Module):
     def __init__(self):
         super(TjNet, self).__init__()
         self.block1 = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=32, kernel_size=(3, 3), stride=(2, 2)),
+            nn.Conv2d(in_channels=1, out_channels=32, kernel_size=(3, 3), stride=(2, 2)),
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(1, 1)),

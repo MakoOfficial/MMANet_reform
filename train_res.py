@@ -144,7 +144,7 @@ def create_data_loader(train_df, val_df, train_root, val_root):
 def L1_penalty(net, alpha):
     l1_penalty = torch.nn.L1Loss(size_average=False)
     loss = 0
-    for param in net.featureCombine.parameters():
+    for param in net.MLP.parameters():
         loss += torch.sum(torch.abs(param))
 
     return alpha * loss
@@ -298,7 +298,7 @@ def map_fn(flags):
             best_loss = val_mae
         print(
             f'training loss is {train_loss}, val loss is {val_mae}, time : {time.time() - start_time}, lr:{optimizer.param_groups[0]["lr"]}')
-        scheduler.step(val_mae)
+        scheduler.step()
 
     print(f'best loss: {best_loss}')
     torch.save(mymodel.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
@@ -400,7 +400,7 @@ if __name__ == "__main__":
     flags['num_epochs'] = args.num_epochs
     flags['seed'] = 1
 
-    data_dir = '../archive_mask/archive'
+    data_dir = '../../autodl-tmp/archive'
 
     train_csv = os.path.join(data_dir, "train.csv")
     train_df = pd.read_csv(train_csv)
