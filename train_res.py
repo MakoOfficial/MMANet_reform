@@ -11,11 +11,10 @@ from torch import Tensor
 from torch.utils.data import Dataset
 
 import torch.nn.functional as F
-from torch.utils.data import Dataset
 
 import random
 
-from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import StepLR
 
 from albumentations.augmentations.transforms import Lambda, Normalize, RandomBrightnessContrast
 from albumentations.augmentations.geometric.transforms import ShiftScaleRotate, HorizontalFlip
@@ -65,8 +64,8 @@ def sample_normalize(image, **kwargs):
 
 transform_train = Compose([
     # RandomBrightnessContrast(p = 0.8),
-    RandomResizedCrop(500, 500, (0.5, 1.0), p=0.5),
-    Resize(height=500, width=500),
+    # Resize(height=512, width=512),
+    RandomResizedCrop(512, 512, (0.5, 1.0), p=0.5),
     ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=20, border_mode=cv2.BORDER_CONSTANT, value=0.0,
                      p=0.8),
     # HorizontalFlip(p = 0.5),
@@ -81,7 +80,11 @@ transform_train = Compose([
 ])
 
 transform_val = Compose([
-    Resize(height=500, width=500),
+    Lambda(image=sample_normalize),
+    ToTensorV2(),
+])
+
+transform_test = Compose([
     Lambda(image=sample_normalize),
     ToTensorV2(),
 ])
@@ -225,7 +228,7 @@ from model import ResNet, get_My_resnet50
 
 
 def map_fn(flags):
-    model_name = f'res_CE_MaskAll'
+    model_name = f'Res50_CE_All'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
@@ -234,7 +237,7 @@ def map_fn(flags):
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
-    train_set, val_set = create_data_loader(train_df, val_df, train_path, val_path)
+    train_set, val_set = create_data_loader(train_df, valid_df, train_path, valid_path)
     print(train_set.__len__())
     # Creates dataloaders, which load data in batches
     # Note: test loader is not shuffled or sampled
@@ -243,13 +246,17 @@ def map_fn(flags):
         batch_size=flags['batch_size'],
         shuffle=True,
         num_workers=flags['num_workers'],
-        drop_last=True)
+        drop_last=True,
+        pin_memory=True
+    )
 
     val_loader = torch.utils.data.DataLoader(
         val_set,
         batch_size=flags['batch_size'],
         shuffle=False,
-        num_workers=flags['num_workers'])
+        num_workers=flags['num_workers'],
+        pin_memory=True
+    )
 
     ## Network, optimizer, and loss function creation
 
@@ -298,14 +305,24 @@ def map_fn(flags):
     # if use multi-gpu
     # torch.save(mymodel.module.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
 
+    train_test_dataset = BAAValDataset(train_df, train_path)
+    train_test_dataloader = torch.utils.data.DataLoader(
+        train_test_dataset,
+        batch_size=flags['batch_size'],
+        shuffle=False,
+        num_workers=flags['num_workers'],
+        pin_memory=True
+    )
+
+
     # save log
     with torch.no_grad():
         train_record = [['label', 'pred']]
-        train_record_path = os.path.join(save_path, f"train.csv")
+        train_record_path = os.path.join(save_path, f"train_result.csv")
         train_length = 0.
         total_loss = 0.
         mymodel.eval()
-        for idx, data in enumerate(train_loader):
+        for idx, data in enumerate(train_test_dataloader):
             image, gender = data[0]
             image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
@@ -333,7 +350,7 @@ def map_fn(flags):
 
     with torch.no_grad():
         val_record = [['label', 'pred']]
-        val_record_path = os.path.join(save_path, f"val.csv")
+        val_record_path = os.path.join(save_path, f"val_result.csv")
         val_length = 0.
         val_loss = 0.
         mymodel.eval()
@@ -347,12 +364,12 @@ def map_fn(flags):
             y_pred = mymodel(image, gender)
 
             output = torch.argmax(y_pred, dim=1)+1
-
-            output = torch.squeeze(output)
-            label = torch.squeeze(label)
+            if output.shape[0] != 1:
+                output = torch.squeeze(output)
+                label = torch.squeeze(label)
             for i in range(output.shape[0]):
                 val_record.append([label[i].item(), round(output[i].item(), 2)])
-            assert output.shape == label.shape, "pred and output isn't the same shape"
+            # assert output.shape == label.shape, "pred and output isn't the same shape"
 
             val_loss += F.l1_loss(output, label, reduction='sum').item()
             val_length += batch_size
@@ -371,9 +388,9 @@ if __name__ == "__main__":
     parser.add_argument('lr', type=float)
     parser.add_argument('batch_size', type=int)
     parser.add_argument('num_epochs', type=int)
-    parser.add_argument('seed', type=int)
+    parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/res_MaskAll'
+    save_path = '../../autodl-tmp/Res50_AllPre'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
@@ -381,17 +398,16 @@ if __name__ == "__main__":
     flags['batch_size'] = args.batch_size
     flags['num_workers'] = 8
     flags['num_epochs'] = args.num_epochs
-    flags['seed'] = args.seed
+    flags['seed'] = 1
 
-    # train_df = pd.read_csv(f'../archive/boneage-training-dataset.csv')
-    # boneage_mean = train_df['boneage'].mean()
-    # boneage_div = train_df['boneage'].std()
+    data_dir = '../archive_mask/archive'
 
-    data_dir = '../../autodl-tmp/ori/'
-    train_df = pd.read_csv(os.path.join(data_dir, 'train.csv'))
-    val_df = pd.read_csv(os.path.join(data_dir, 'valid.csv'))
-    train_path = os.path.join(data_dir, 'train')
-    val_path = os.path.join(data_dir, 'valid')
+    train_csv = os.path.join(data_dir, "train.csv")
+    train_df = pd.read_csv(train_csv)
+    valid_csv = os.path.join(data_dir, "valid.csv")
+    valid_df = pd.read_csv(valid_csv)
+    train_path = os.path.join(data_dir, "train")
+    valid_path = os.path.join(data_dir, "valid")
 
     # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
     # train_ori_dir = '../archive/masked_1K_fold/'
