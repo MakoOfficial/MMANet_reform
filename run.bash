@@ -6,3 +6,8 @@ python train.py 5e-4 16 50 1
 #python train_grad.py 5e-4 32 50 1
 python test.py 5e-4 16 50
 python train_inMemory.py 5e-4 16 50
+
+python train_efficient.py 5e-4 32 50
+python train_inceptv3.py 5e-4 32 50
+python train_inceptv4.py 5e-4 32 50
+python train_mobile.py 5e-4 32 50

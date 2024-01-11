@@ -228,7 +228,7 @@ from model import baseline, get_My_mobilenetv2
 
 
 def map_fn(flags):
-    model_name = f'xception_CE_All_woPre'
+    model_name = f'mobile_CE_All_woPre'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
