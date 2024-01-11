@@ -224,16 +224,16 @@ def evaluate_fn(net, val_loader):
 
 
 import time
-from model import baseline, get_My_resnet50
+from model import baseline, get_My_inceptionv3
 
 
 def map_fn(flags):
-    model_name = f'Res50_CE_All'
+    model_name = f'inceptionv3_CE_All_woPre'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
-    mymodel = baseline(32, *get_My_resnet50()).cuda()
+    mymodel = baseline(32, *get_My_inceptionv3()).cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
@@ -390,7 +390,7 @@ if __name__ == "__main__":
     parser.add_argument('num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/Res50_AllPre'
+    save_path = '../../../autodl-tmp/inceptv3_All_woPre'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
@@ -400,7 +400,7 @@ if __name__ == "__main__":
     flags['num_epochs'] = args.num_epochs
     flags['seed'] = 1
 
-    data_dir = '../../autodl-tmp/archive'
+    data_dir = '../../../autodl-tmp/archive'
 
     train_csv = os.path.join(data_dir, "train.csv")
     train_df = pd.read_csv(train_csv)

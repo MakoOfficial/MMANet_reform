@@ -27,10 +27,10 @@ class TjNet(nn.Module):
             nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(1, 1)),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding='same'),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding='same'),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=3, stride=2),
@@ -42,13 +42,13 @@ class TjNet(nn.Module):
             nn.Conv2d(in_channels=80, out_channels=192, kernel_size=(3, 3)),
             nn.BatchNorm2d(192),
             nn.ReLU(),
-            nn.Conv2d(in_channels=192, out_channels=192, kernel_size=(3, 3), padding='same'),
+            nn.Conv2d(in_channels=192, out_channels=192, kernel_size=(3, 3), padding=1),
             nn.BatchNorm2d(192),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(3, 3), stride=(2, 2))
         )
         self.block3 = nn.Sequential(
-            nn.Conv2d(in_channels=192, out_channels=512, kernel_size=(3, 3), padding='same'),
+            nn.Conv2d(in_channels=192, out_channels=512, kernel_size=(3, 3), padding=1),
             nn.BatchNorm2d(512),
             nn.ReLU(),
             nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=1),
@@ -57,7 +57,7 @@ class TjNet(nn.Module):
             nn.MaxPool2d(kernel_size=(3, 3), stride=(2, 2))
         )
         self.block4 = nn.Sequential(
-            nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=(3, 3), padding='same'),
+            nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=(3, 3), padding=1),
             nn.BatchNorm2d(1024),
             nn.ReLU(),
             nn.Conv2d(in_channels=1024, out_channels=2048, kernel_size=1),
@@ -66,13 +66,13 @@ class TjNet(nn.Module):
             nn.MaxPool2d(kernel_size=(3, 3), stride=(2, 2))
         )
         self.block5 = nn.Sequential(
-            nn.Conv2d(in_channels=2048, out_channels=2048, kernel_size=3, padding='same'),
+            nn.Conv2d(in_channels=2048, out_channels=2048, kernel_size=3, padding=1),
             nn.BatchNorm2d(2048),
             nn.ReLU(),
             nn.Conv2d(in_channels=2048, out_channels=2048, kernel_size=(3, 3), stride=(2, 2), padding=2),
             nn.BatchNorm2d(2048),
             nn.ReLU(),
-            nn.Conv2d(in_channels=2048, out_channels=2048, kernel_size=(5, 5), stride=1, padding='same'),
+            nn.Conv2d(in_channels=2048, out_channels=2048, kernel_size=(5, 5), stride=1, padding=2),
             nn.BatchNorm2d(2048),
             nn.ReLU(),
             nn.AvgPool2d(kernel_size=(8, 8))
