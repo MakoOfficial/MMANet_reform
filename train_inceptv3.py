@@ -25,7 +25,7 @@ from albumentations import Compose, Resize
 import warnings
 
 import torchvision.transforms as transforms
-from ..utils.func import print
+from utils.func import print
 
 warnings.filterwarnings("ignore")
 
@@ -167,6 +167,7 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
     global training_loss
 
     net.train()
+    print(net)
     for batch_idx, data in enumerate(train_loader):
         image, gender = data[0]
         image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
@@ -174,7 +175,7 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
         batch_size = len(data[1])
         # label = F.one_hot(data[1]-1, num_classes=230).float().cuda()
         label = (data[1] - 1).type(torch.LongTensor).cuda()
-
+        print(image.shape)
         # zero the parameter gradients
         optimizer.zero_grad()
         # forward
@@ -390,7 +391,7 @@ if __name__ == "__main__":
     parser.add_argument('num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../../autodl-tmp/inceptv3_All_woPre'
+    save_path = '../../autodl-tmp/inceptv3_All_woPre'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
@@ -400,7 +401,7 @@ if __name__ == "__main__":
     flags['num_epochs'] = args.num_epochs
     flags['seed'] = 1
 
-    data_dir = '../../../autodl-tmp/archive'
+    data_dir = '../../autodl-tmp/archive'
 
     train_csv = os.path.join(data_dir, "train.csv")
     train_df = pd.read_csv(train_csv)
