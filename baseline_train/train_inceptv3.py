@@ -25,7 +25,7 @@ from albumentations import Compose, Resize
 import warnings
 
 import torchvision.transforms as transforms
-from utils.func import print
+from ..utils.func import print
 
 warnings.filterwarnings("ignore")
 
