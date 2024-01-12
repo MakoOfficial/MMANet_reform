@@ -25,7 +25,7 @@ from albumentations import Compose, Resize
 import warnings
 
 import torchvision.transforms as transforms
-from ..utils.func import print
+from utils.func import print
 
 warnings.filterwarnings("ignore")
 
@@ -224,16 +224,16 @@ def evaluate_fn(net, val_loader):
 
 
 import time
-from model import baseline, get_My_efficientnetv2
+from model import baseline, get_My_mobilenetv2
 
 
 def map_fn(flags):
-    model_name = f'efficient_CE_All_woPre'
+    model_name = f'mobile_CE_All_woPre'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
-    mymodel = baseline(32, *get_My_efficientnetv2()).cuda()
+    mymodel = baseline(32, *get_My_mobilenetv2()).cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
@@ -390,7 +390,7 @@ if __name__ == "__main__":
     parser.add_argument('num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../../autodl-tmp/efficient_All_woPre'
+    save_path = '../../../autodl-tmp/mobile_All_woPre'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
