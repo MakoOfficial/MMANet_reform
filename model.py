@@ -228,6 +228,21 @@ class baseline(nn.Module):
 
         return self.MLP(torch.cat((x, gender_encode), dim=-1))
 
+    def manifold_output(self, x, gender):
+        x = self.backbone(x)
+        x = F.adaptive_avg_pool2d(x, 1)
+        x = torch.squeeze(x)
+        x = x.view(-1, self.out_channels)
+
+        gender_encode = self.gender_encoder(gender)
+        x = torch.cat((x, gender_encode), dim=-1)
+        for i in range(len(self.MLP)):
+            x = self.MLP[i](x)
+            if i == 5:
+                ReLU_out = x
+
+        return ReLU_out
+
 
 class Pooling_attention(nn.Module):
   def __init__(self, input_channels, kernel_size = 1):

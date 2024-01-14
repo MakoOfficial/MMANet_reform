@@ -66,7 +66,8 @@ transform_train = Compose([
     # RandomBrightnessContrast(p = 0.8),
     # Resize(height=512, width=512),
     RandomResizedCrop(512, 512, (0.5, 1.0), p=0.5),
-    ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=20, border_mode=cv2.BORDER_CONSTANT, value=0.0,
+    # ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=20, border_mode=cv2.BORDER_CONSTANT, value=0.0,
+    ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, border_mode=cv2.BORDER_CONSTANT, value=0.0,
                      p=0.8),
     # HorizontalFlip(p = 0.5),
 
@@ -272,7 +273,7 @@ def map_fn(flags):
 
     optimizer = torch.optim.Adam(mymodel.parameters(), lr=lr, weight_decay=wd)
     #   optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay = wd)
-    scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
+    scheduler = StepLR(optimizer, step_size=15, gamma=0.5)
 
     ## Trains
     for epoch in range(flags['num_epochs']):
@@ -385,22 +386,22 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('lr', type=float)
-    parser.add_argument('batch_size', type=int)
-    parser.add_argument('num_epochs', type=int)
+    parser.add_argument('--lr', type=float)
+    parser.add_argument('--batch_size', type=int)
+    parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/Res50_All_rotate_hist_1'
+    save_path = '../../autodl-tmp/Res50_All_rotate_1_epoch'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
-    flags['lr'] = args.lr
-    flags['batch_size'] = args.batch_size
+    flags['lr'] = 5e-4
+    flags['batch_size'] = 32
     flags['num_workers'] = 8
-    flags['num_epochs'] = args.num_epochs
+    flags['num_epochs'] = 100
     flags['seed'] = 1
 
-    data_dir = '../../autodl-tmp/archive_rotate_hist'
+    data_dir = '../../autodl-tmp/archive_rotate'
 
     train_csv = os.path.join(data_dir, "train.csv")
     train_df = pd.read_csv(train_csv)
@@ -411,5 +412,6 @@ if __name__ == "__main__":
 
     # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
     # train_ori_dir = '../archive/masked_1K_fold/'
-    print(f'seed 1 rotate+hist start')
+    print(flags)
+    print(f'{save_path} start')
     map_fn(flags)
