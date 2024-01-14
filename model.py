@@ -218,7 +218,7 @@ class baseline(nn.Module):
         )
 
     def forward(self, x, gender):
-        print(f"x is {x.shape}")
+        # print(f"x is {x.shape}")
         x = self.backbone(x)
         x = F.adaptive_avg_pool2d(x, 1)
         x = torch.squeeze(x)

@@ -390,7 +390,7 @@ if __name__ == "__main__":
     parser.add_argument('num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/Res50_AllPre_rotate'
+    save_path = '../../autodl-tmp/Res50_All_rotate_hist_1'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
@@ -400,7 +400,7 @@ if __name__ == "__main__":
     flags['num_epochs'] = args.num_epochs
     flags['seed'] = 1
 
-    data_dir = '../../autodl-tmp/archive_rotate'
+    data_dir = '../../autodl-tmp/archive_rotate_hist'
 
     train_csv = os.path.join(data_dir, "train.csv")
     train_df = pd.read_csv(train_csv)
@@ -411,5 +411,5 @@ if __name__ == "__main__":
 
     # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
     # train_ori_dir = '../archive/masked_1K_fold/'
-    print(f'start')
+    print(f'seed 1 rotate+hist start')
     map_fn(flags)
