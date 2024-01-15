@@ -171,12 +171,12 @@ def train_fn(net, train_loader, loss_fn, loss_fn_2, optimizer):
     net.train()
     for batch_idx, data in enumerate(train_loader):
         image, gender = data[0]
-        label = (data[1] - 1)
+        label = (data[1] - 1).type(torch.LongTensor).cuda()
         align_target = get_align_target(label, gender)
         image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
         batch_size = len(data[1])
-        label = label.type(torch.LongTensor).cuda()
+        # label = label.type(torch.LongTensor).cuda()
         # zero the parameter gradients
         optimizer.zero_grad()
         # forward
@@ -392,7 +392,7 @@ def delete_diag(batch):
 
 def get_align_target(labels, gender):
     # one_hot = F.one_hot(labels.type(torch.LongTensor), num_classes=230).squeeze().float().cuda()
-    idx = labels.type(torch.LongTensor)
+    idx = labels.type(torch.LongTensor).squeeze()
     labels_mat = torch.index_select(torch.index_select(dis, 0, idx), 1, idx)
     one_hot_gender = F.one_hot(gender.type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
     # labels_mat = torch.matmul(one_hot, one_hot.t())
