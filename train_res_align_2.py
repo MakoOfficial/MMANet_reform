@@ -189,7 +189,7 @@ def train_fn(net, train_loader, loss_fn, loss_fn_2, optimizer):
         loss_similarity = loss_fn_2(similarity, align_target)
 
         # backward,calculate gradients
-        total_loss = loss + L1_penalty(net, 1e-5) + loss_similarity
+        total_loss = loss + L1_penalty(net, 1e-5) + 0.5 * loss_similarity
         total_loss.backward()
         # backward,update parameter
         optimizer.step()
@@ -267,7 +267,8 @@ def map_fn(flags):
     global best_loss
     best_loss = float('inf')
     loss_fn = nn.CrossEntropyLoss(reduction='sum')
-    loss_fn_2 = nn.L1Loss(reduction='sum')
+    loss_fn_2 = nn.MSELoss(reduction='sum')
+    # loss_fn_2 = nn.L1Loss(reduction='sum')
     lr = flags['lr']
 
     wd = 0
@@ -390,9 +391,11 @@ def delete_diag(batch):
 
 
 def get_align_target(labels, gender):
-    one_hot = F.one_hot(labels.type(torch.LongTensor), num_classes=230).squeeze().float().cuda()
+    # one_hot = F.one_hot(labels.type(torch.LongTensor), num_classes=230).squeeze().float().cuda()
+    idx = labels.type(torch.LongTensor)
+    labels_mat = torch.index_select(torch.index_select(dis, 0, idx), 1, idx)
     one_hot_gender = F.one_hot(gender.type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
-    labels_mat = torch.matmul(one_hot, one_hot.t())
+    # labels_mat = torch.matmul(one_hot, one_hot.t())
     gender_mat = torch.matmul(one_hot_gender, one_hot_gender.t())
 
     return labels_mat * gender_mat * delete_diag_mat
@@ -402,6 +405,47 @@ def cos_similarity(logits):
     logit_nrom = logits / torch.norm(logits, dim=1, keepdim=True)
     similarity = torch.matmul(logit_nrom, logit_nrom.t())
     return similarity * delete_diag_mat
+
+
+def relative_pos_dis():
+    dis = torch.zeros((1, 230))
+    for i in range(230):
+        age_vector = torch.zeros((1, 230))
+        if i < 2:
+            j = i
+            age_vector[0][i + 1] = 1
+            age_vector[0][i + 2] = 1
+            while j >= 0:
+                age_vector[0][j] = 1
+                j -= 1
+            dis = torch.cat((dis, age_vector), dim=0)
+            continue
+        if i > 227:
+            j = i
+            age_vector[0][i - 1] = 1
+            age_vector[0][i - 2] = 1
+            while j < 230:
+                age_vector[0][j] = 1
+                j += 1
+            dis = torch.cat((dis, age_vector), dim=0)
+            continue
+        age_vector[0][i-2] = 1
+        age_vector[0][i-1] = 1
+        age_vector[0][i] = 1
+        age_vector[0][i+1] = 1
+        age_vector[0][i+2] = 1
+        dis = torch.cat((dis, age_vector), dim=0)
+    return dis[1:]
+
+    # coords_h = torch.arange(height)
+    # coords_w = torch.arange(weight)
+    # coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww # 0 is 32 * 32 for h, 1 is 32 * 32 for w
+    # coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
+    # relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
+    # relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
+    # dis = (relative_coords[:, :, 0].float()/height) ** 2 + (relative_coords[:, :, 1].float()/weight) ** 2
+    #dis = torch.exp(-dis*(1/(2*sita**2)))
+    # return dis[]
 
 
 
@@ -414,7 +458,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/Res50_AllPre_1_100epoch_align'
+    save_path = '../../autodl-tmp/Res50_AllPre_1_100epoch_align2'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
@@ -438,6 +482,7 @@ if __name__ == "__main__":
     # train_ori_dir = '../archive/masked_1K_fold/'
 
     delete_diag_mat = delete_diag(flags['batch_size']).cuda()
+    dis = relative_pos_dis().cuda()
 
     print(flags)
     # print(f'{save_path} start')
