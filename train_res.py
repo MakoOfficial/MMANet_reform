@@ -146,6 +146,8 @@ def L1_penalty(net, alpha):
     loss = 0
     for param in net.MLP.parameters():
         loss += torch.sum(torch.abs(param))
+    for param2 in net.classifer.parameters():
+        loss += torch.sum(torch.abs(param2))
 
     return alpha * loss
 
@@ -178,7 +180,7 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
         # zero the parameter gradients
         optimizer.zero_grad()
         # forward
-        y_pred = net(image, gender)
+        y_pred, _ = net(image, gender)
         y_pred = y_pred.squeeze()
         label = label.squeeze()
         # print(y_pred)
@@ -210,7 +212,7 @@ def evaluate_fn(net, val_loader):
 
             label = data[1].cuda()
 
-            y_pred = net(image, gender)
+            y_pred, _ = net(image, gender)
             # y_pred = net(image, gender)
             y_pred = torch.argmax(y_pred, dim=1)+1
 
@@ -224,7 +226,7 @@ def evaluate_fn(net, val_loader):
 
 
 import time
-from model import baseline, get_My_resnet50
+from model import Res50Align, get_My_resnet50
 
 
 def map_fn(flags):
@@ -233,7 +235,7 @@ def map_fn(flags):
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
-    mymodel = baseline(32, *get_My_resnet50()).cuda()
+    mymodel = Res50Align(32, *get_My_resnet50(pretrained=True)).cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
@@ -272,7 +274,7 @@ def map_fn(flags):
 
     optimizer = torch.optim.Adam(mymodel.parameters(), lr=lr, weight_decay=wd)
     #   optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay = wd)
-    scheduler = StepLR(optimizer, step_size=15, gamma=0.5)
+    scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
 
     ## Trains
     for epoch in range(flags['num_epochs']):
@@ -329,7 +331,7 @@ def map_fn(flags):
             batch_size = len(data[1])
             label = data[1].cuda()
 
-            y_pred = mymodel(image, gender)
+            y_pred, _ = mymodel(image, gender)
 
             output = torch.argmax(y_pred, dim=1)+1
 
@@ -361,7 +363,7 @@ def map_fn(flags):
             batch_size = len(data[1])
             label = data[1].cuda()
 
-            y_pred = mymodel(image, gender)
+            y_pred, _ = mymodel(image, gender)
 
             output = torch.argmax(y_pred, dim=1)+1
             if output.shape[0] != 1:
@@ -390,7 +392,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/Res50_All_1_100epoch'
+    save_path = '../../autodl-tmp/Res50_AllPre_1_100epoch'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}

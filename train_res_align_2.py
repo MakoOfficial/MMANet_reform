@@ -392,7 +392,7 @@ def delete_diag(batch):
 
 def get_align_target(labels, gender):
     # one_hot = F.one_hot(labels.type(torch.LongTensor), num_classes=230).squeeze().float().cuda()
-    idx = labels.type(torch.LongTensor).squeeze()
+    idx = labels.squeeze()
     labels_mat = torch.index_select(torch.index_select(dis, 0, idx), 1, idx)
     one_hot_gender = F.one_hot(gender.type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
     # labels_mat = torch.matmul(one_hot, one_hot.t())
@@ -485,5 +485,5 @@ if __name__ == "__main__":
     dis = relative_pos_dis().cuda()
 
     print(flags)
-    # print(f'{save_path} start')
+    print(f'{save_path} start')
     map_fn(flags)
