@@ -190,7 +190,8 @@ def train_fn(net, train_loader, loss_fn, loss_fn_2, optimizer, queue, queue_data
                 use_the_queue = True
             # fill the queue
             queue[0][batch_size:] = queue[0][:-batch_size].clone()
-            queue[0][:batch_size] = logits.clone().detach()
+            temp = logits.clone().detach()
+            queue[0][:batch_size] = temp / torch.norm(temp, dim=1, keepdim=True)
             queue[1][batch_size:] = queue[1][:-batch_size].clone()
             queue[1][:batch_size] = gender.squeeze().clone().detach()
             queue[2][batch_size:] = queue[2][:-batch_size].clone()
@@ -313,11 +314,11 @@ def map_fn(flags):
         # optionally starts a queue
         if flags['queue_length'] > 0 and epoch+1 >= args.epoch_queue_starts and queue is None:
             queue_logits = torch.zeros(
-                args.queue_length,
+                flags['queue_length'],
                 512,
             ).cuda()
-            queue_labels = torch.zeros(args.queue_length).cuda()
-            queue_gender = torch.zeros(args.queue_length).cuda()
+            queue_labels = torch.zeros(flags['queue_length']).cuda()
+            queue_gender = torch.zeros(flags['queue_length']).cuda()
             # 0->logits, 1->gender, 2->labels
             queue = (queue_logits, queue_gender, queue_labels)
             queue_dataLen = 0
@@ -428,13 +429,12 @@ def get_align_target(labels, gender, queue, queue_dataLen):
     idx = labels
     gender = gender.squeeze()
     if queue is not None:
-        labels_mat = torch.index_select(torch.index_select(dis, 0, idx), 1, queue[2][-queue_dataLen:])
+        labels_mat = torch.index_select(torch.index_select(dis, 0, idx), 1, queue[2][:queue_dataLen].type(idx.dtype))
         one_hot_gender = F.one_hot(gender.type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
-        one_hot_gender_q = F.one_hot(queue[1][-queue_dataLen:].type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
+        one_hot_gender_q = F.one_hot(queue[1][:queue_dataLen].type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
         # labels_mat = torch.matmul(one_hot, one_hot.t())
         gender_mat = torch.matmul(one_hot_gender, one_hot_gender_q.t())
-
-        return labels_mat * gender_mat * delete_diag_mat
+        return labels_mat * gender_mat
 
     labels_mat = torch.index_select(torch.index_select(dis, 0, idx), 1, idx)
     one_hot_gender = F.one_hot(gender.type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
@@ -448,12 +448,12 @@ def cos_similarity(logits, queue, queue_dataLen):
     if queue is not None:
         logit_nrom = logits / torch.norm(logits, dim=1, keepdim=True)
         # similarity = torch.matmul(logit_nrom, logit_nrom.t())
-        similarity = torch.matmul(logit_nrom, queue[0][-queue_dataLen:].t())
-        return similarity * delete_diag_mat # B x queue.length
+        similarity = torch.matmul(logit_nrom, queue[0][:queue_dataLen].t())
+        return similarity
     logit_nrom = logits / torch.norm(logits, dim=1, keepdim=True)
     similarity = torch.matmul(logit_nrom, logit_nrom.t())
     # similarity = torch.matmul(logit_nrom, queue[0].t())
-    return similarity * delete_diag_mat # B x queue.length
+    return similarity * delete_diag_mat
 
 
 def relative_pos_dis():
@@ -496,7 +496,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int)
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
-    parser.add_argument("--epoch_queue_starts", type=int, default=15,
+    parser.add_argument("--epoch_queue_starts", type=int, default=0,
                         help="from this epoch, we start using a queue")
     args = parser.parse_args()
     save_path = '../../autodl-tmp/Res50_AllPre_1_100epoch_align2_addQueue'
