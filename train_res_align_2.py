@@ -161,7 +161,7 @@ def L1_penalty_multi(net, alpha):
     return alpha * loss
 
 
-def train_fn(net, train_loader, loss_fn, loss_fn_2, optimizer):
+def train_fn(net, train_loader, loss_fn, loss_fn_2, optimizer, queue, queue_dataLen):
     '''
     checkpoint is a dict
     '''
@@ -169,10 +169,10 @@ def train_fn(net, train_loader, loss_fn, loss_fn_2, optimizer):
     global training_loss
 
     net.train()
+    use_the_queue = False
     for batch_idx, data in enumerate(train_loader):
         image, gender = data[0]
         label = (data[1] - 1).type(torch.LongTensor).cuda()
-        align_target = get_align_target(label, gender)
         image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
         batch_size = len(data[1])
@@ -183,9 +183,24 @@ def train_fn(net, train_loader, loss_fn, loss_fn_2, optimizer):
         y_pred, logits = net(image, gender)
         y_pred = y_pred.squeeze()
         label = label.squeeze()
+
+        # time to use queue
+        if queue is not None:
+            if use_the_queue or not torch.all(queue[0][-1, :] == 0):
+                use_the_queue = True
+            # fill the queue
+            queue[0][batch_size:] = queue[0][:-batch_size].clone()
+            queue[0][:batch_size] = logits.clone().detach()
+            queue[1][batch_size:] = queue[1][:-batch_size].clone()
+            queue[1][:batch_size] = gender.squeeze().clone().detach()
+            queue[2][batch_size:] = queue[2][:-batch_size].clone()
+            queue[2][:batch_size] = label.clone().detach()
+            queue_dataLen += batch_size
+
         loss = loss_fn(y_pred, label)
 
-        similarity = cos_similarity(logits)
+        align_target = get_align_target(label, gender, queue, queue_dataLen)
+        similarity = cos_similarity(logits, queue, queue_dataLen)
         loss_similarity = loss_fn_2(similarity, align_target)
 
         # backward,calculate gradients
@@ -197,7 +212,7 @@ def train_fn(net, train_loader, loss_fn, loss_fn_2, optimizer):
 
         training_loss += batch_loss
         total_size += batch_size
-    return training_loss / total_size
+    return queue, queue_dataLen
 
 
 def evaluate_fn(net, val_loader):
@@ -262,6 +277,12 @@ def map_fn(flags):
         pin_memory=True
     )
 
+    # build the queue
+    queue = None
+    queue_dataLen = None
+    # the queue needs to be divisible by the batch size
+    flags['queue_length'] -= flags['queue_length'] % flags['batch_size']
+
     ## Network, optimizer, and loss function creation
 
     global best_loss
@@ -289,8 +310,21 @@ def map_fn(flags):
         global val_total_size
         val_total_size = torch.tensor([0], dtype=torch.float32)
 
+        # optionally starts a queue
+        if flags['queue_length'] > 0 and epoch+1 >= args.epoch_queue_starts and queue is None:
+            queue_logits = torch.zeros(
+                args.queue_length,
+                512,
+            ).cuda()
+            queue_labels = torch.zeros(args.queue_length).cuda()
+            queue_gender = torch.zeros(args.queue_length).cuda()
+            # 0->logits, 1->gender, 2->labels
+            queue = (queue_logits, queue_gender, queue_labels)
+            queue_dataLen = 0
+
+
         start_time = time.time()
-        train_fn(mymodel, train_loader, loss_fn, loss_fn_2, optimizer)
+        queue, queue_dataLen = train_fn(mymodel, train_loader, loss_fn, loss_fn_2, optimizer, queue, queue_dataLen)
 
         ## Evaluation
         # Sets net to eval and no grad context
@@ -390,9 +424,18 @@ def delete_diag(batch):
     return delete_diag_mat
 
 
-def get_align_target(labels, gender):
-    # one_hot = F.one_hot(labels.type(torch.LongTensor), num_classes=230).squeeze().float().cuda()
-    idx = labels.squeeze()
+def get_align_target(labels, gender, queue, queue_dataLen):
+    idx = labels
+    gender = gender.squeeze()
+    if queue is not None:
+        labels_mat = torch.index_select(torch.index_select(dis, 0, idx), 1, queue[2][-queue_dataLen:])
+        one_hot_gender = F.one_hot(gender.type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
+        one_hot_gender_q = F.one_hot(queue[1][-queue_dataLen:].type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
+        # labels_mat = torch.matmul(one_hot, one_hot.t())
+        gender_mat = torch.matmul(one_hot_gender, one_hot_gender_q.t())
+
+        return labels_mat * gender_mat * delete_diag_mat
+
     labels_mat = torch.index_select(torch.index_select(dis, 0, idx), 1, idx)
     one_hot_gender = F.one_hot(gender.type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
     # labels_mat = torch.matmul(one_hot, one_hot.t())
@@ -401,10 +444,16 @@ def get_align_target(labels, gender):
     return labels_mat * gender_mat * delete_diag_mat
 
 
-def cos_similarity(logits):
+def cos_similarity(logits, queue, queue_dataLen):
+    if queue is not None:
+        logit_nrom = logits / torch.norm(logits, dim=1, keepdim=True)
+        # similarity = torch.matmul(logit_nrom, logit_nrom.t())
+        similarity = torch.matmul(logit_nrom, queue[0][-queue_dataLen:].t())
+        return similarity * delete_diag_mat # B x queue.length
     logit_nrom = logits / torch.norm(logits, dim=1, keepdim=True)
     similarity = torch.matmul(logit_nrom, logit_nrom.t())
-    return similarity * delete_diag_mat
+    # similarity = torch.matmul(logit_nrom, queue[0].t())
+    return similarity * delete_diag_mat # B x queue.length
 
 
 def relative_pos_dis():
@@ -437,16 +486,6 @@ def relative_pos_dis():
         dis = torch.cat((dis, age_vector), dim=0)
     return dis[1:]
 
-    # coords_h = torch.arange(height)
-    # coords_w = torch.arange(weight)
-    # coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww # 0 is 32 * 32 for h, 1 is 32 * 32 for w
-    # coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
-    # relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
-    # relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
-    # dis = (relative_coords[:, :, 0].float()/height) ** 2 + (relative_coords[:, :, 1].float()/weight) ** 2
-    #dis = torch.exp(-dis*(1/(2*sita**2)))
-    # return dis[]
-
 
 
 if __name__ == "__main__":
@@ -457,8 +496,10 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int)
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
+    parser.add_argument("--epoch_queue_starts", type=int, default=15,
+                        help="from this epoch, we start using a queue")
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/Res50_AllPre_1_100epoch_align2'
+    save_path = '../../autodl-tmp/Res50_AllPre_1_100epoch_align2_addQueue'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
@@ -467,6 +508,7 @@ if __name__ == "__main__":
     flags['num_workers'] = 8
     flags['num_epochs'] = 100
     flags['seed'] = 1
+    flags['queue_length'] = 480
 
     data_dir = '../../autodl-tmp/archive'
     # data_dir = r'E:/code/archive/masked_1K_fold/fold_1'
