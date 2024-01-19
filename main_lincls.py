@@ -221,9 +221,9 @@ from model import classify, get_My_resnet50, Res50Align
 def map_fn(flags):
     model_name = f'lincls'
 
-    backbone = Res50Align(32, *get_My_resnet50(pretrained=False))
+    backbone = Res50Align(32, *get_My_resnet50(pretrained=False)).cuda()
     msg = backbone.load_state_dict(
-        torch.load('../models/modelsRecord/Align/Pretrained_1_100epoch_align_modify/Pretrained_align_modify.bin'))
+        torch.load('./Pretrained_align_modify.bin'))
     print(msg)
     mymodel = classify(backbone)
     for name, param in mymodel.named_parameters():
@@ -231,7 +231,7 @@ def map_fn(flags):
             param.requires_grad = False
     mymodel.classifier.weight.data.normal_(mean=0.0, std=0.01)
     mymodel.classifier.bias.data.zero_()
-
+    mymodel = mymodel.cuda()
     train_set, val_set = create_data_loader(train_df, valid_df, train_path, valid_path)
     print(train_set.__len__())
     # Creates dataloaders, which load data in batches
