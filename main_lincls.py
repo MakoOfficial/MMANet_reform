@@ -144,24 +144,13 @@ def create_data_loader(train_df, val_df, train_root, val_root):
 def L1_penalty(net, alpha):
     l1_penalty = torch.nn.L1Loss(size_average=False)
     loss = 0
-    for param in net.MLP.parameters():
-        loss += torch.sum(torch.abs(param))
-    # for param2 in net.classifer.parameters():
-    #     loss += torch.sum(torch.abs(param2))
-
-    return alpha * loss
-
-
-def L1_penalty_multi(net, alpha):
-    l1_penalty = torch.nn.L1Loss(size_average=False)
-    loss = 0
-    for param in net.module.fc.parameters():
+    for param in net.classifier.parameters():
         loss += torch.sum(torch.abs(param))
 
     return alpha * loss
 
 
-def train_fn(net, train_loader, loss_fn, optimizer):
+def train_fn(net, train_loader, loss_fn, epoch, optimizer):
     '''
     checkpoint is a dict
     '''
@@ -171,36 +160,35 @@ def train_fn(net, train_loader, loss_fn, optimizer):
     net.train()
     for batch_idx, data in enumerate(train_loader):
         image, gender = data[0]
-        label = (data[1] - 1).type(torch.LongTensor).cuda()
         image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
         batch_size = len(data[1])
+        # label = F.one_hot(data[1]-1, num_classes=230).float().cuda()
+        label = (data[1] - 1).type(torch.LongTensor).cuda()
+
         # zero the parameter gradients
         optimizer.zero_grad()
         # forward
-        logits = net(image, gender)
+        y_pred = net(image, gender)
+        y_pred = y_pred.squeeze()
         label = label.squeeze()
-
-        align_target = get_align_target(label, gender)
-        similarity = cos_similarity(logits)
-        loss_similarity = loss_fn(similarity, align_target)
-
+        # print(y_pred)
+        # print(y_pred, label)
+        loss = loss_fn(y_pred, label)
         # backward,calculate gradients
-        total_loss = L1_penalty(net, 1e-5) + loss_similarity
+        total_loss = loss + L1_penalty(net, 1e-5)
         total_loss.backward()
         # backward,update parameter
         optimizer.step()
-        batch_loss = loss_similarity.item()
-        # print(f'train_loss {batch_loss}')
+        batch_loss = loss.item()
 
         training_loss += batch_loss
         total_size += batch_size
-    return training_loss
+    return training_loss / total_size
 
 
-def evaluate_fn(net, val_loader, loss_fn):
+def evaluate_fn(net, val_loader):
     net.eval()
-    # net.train()
 
     global mae_loss
     global val_total_size
@@ -209,38 +197,40 @@ def evaluate_fn(net, val_loader, loss_fn):
             val_total_size += len(data[1])
 
             image, gender = data[0]
-            label = (data[1] - 1).type(torch.LongTensor).cuda()
             image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
-            logits = net(image, gender)
+            label = data[1].cuda()
+
+            y_pred = net(image, gender)
+            # y_pred = net(image, gender)
+            y_pred = torch.argmax(y_pred, dim=1)+1
+
+            y_pred = y_pred.squeeze()
             label = label.squeeze()
 
-            align_target = get_align_target(label, gender).cpu()
-            # print(align_target)
-            similarity = cos_similarity(logits).cpu()
-            # print(f'similarity.shape :{similarity.shape}')
-            # print(f'align_target.shape :{align_target.shape}')
-            batch_loss = loss_fn(similarity, align_target).item()
-            # print(f'valid_loss {batch_loss}')
-
+            batch_loss = F.l1_loss(y_pred, label, reduction='sum').item()
             # print(batch_loss/len(data[1]))
             mae_loss += batch_loss
     return mae_loss
 
 
 import time
-from model import Res50Align, get_My_resnet50
+from model import classify, get_My_resnet50, Res50Align
 
 
 def map_fn(flags):
-    model_name = f'Pretrained_align_modify'
-    # Acquires the (unique) Cloud TPU core corresponding to this process's index
-    # gpus = [0, 1]
-    # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
+    model_name = f'lincls'
 
-    mymodel = Res50Align(32, *get_My_resnet50(pretrained=True)).cuda()
-    #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
-    # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
+    backbone = Res50Align(32, *get_My_resnet50(pretrained=False))
+    msg = backbone.load_state_dict(
+        torch.load('../models/modelsRecord/Align/Pretrained_1_100epoch_align_modify/Pretrained_align_modify.bin'))
+    print(msg)
+    mymodel = classify(backbone)
+    for name, param in mymodel.named_parameters():
+        if name not in ["classifier.weight", "classifier.bias"]:
+            param.requires_grad = False
+    mymodel.classifier.weight.data.normal_(mean=0.0, std=0.01)
+    mymodel.classifier.bias.data.zero_()
 
     train_set, val_set = create_data_loader(train_df, valid_df, train_path, valid_path)
     print(train_set.__len__())
@@ -260,23 +250,22 @@ def map_fn(flags):
         batch_size=flags['batch_size'],
         shuffle=False,
         num_workers=flags['num_workers'],
-        drop_last=True,
         pin_memory=True
     )
-
 
     ## Network, optimizer, and loss function creation
 
     global best_loss
     best_loss = float('inf')
-    # loss_fn = nn.CrossEntropyLoss(reduction='sum')
-    loss_fn = nn.MSELoss(reduction='sum')
-    # loss_fn_2 = nn.L1Loss(reduction='sum')
+    loss_fn = nn.CrossEntropyLoss(reduction='sum').cuda()
     lr = flags['lr']
 
     wd = 0
 
-    optimizer = torch.optim.Adam(mymodel.parameters(), lr=lr, weight_decay=wd)
+    # optimize only the linear classifier
+    parameters = list(filter(lambda p: p.requires_grad, mymodel.parameters()))
+    assert len(parameters) == 2  # classifier.weight, classifier.bias
+    optimizer = torch.optim.Adam(parameters, lr=lr, weight_decay=wd)
     #   optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay = wd)
     scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
 
@@ -292,19 +281,18 @@ def map_fn(flags):
         global val_total_size
         val_total_size = torch.tensor([0], dtype=torch.float32)
 
-
         start_time = time.time()
-        train_fn(mymodel, train_loader, loss_fn, optimizer)
+        train_fn(mymodel, train_loader, loss_fn, epoch, optimizer)
 
         ## Evaluation
         # Sets net to eval and no grad context
-        evaluate_fn(mymodel, val_loader, loss_fn)
+        evaluate_fn(mymodel, val_loader)
 
-        train_loss, val_loss = training_loss / total_size, mae_loss / val_total_size
-        if val_loss < best_loss:
-            best_loss = val_loss
+        train_loss, val_mae = training_loss / total_size, mae_loss / val_total_size
+        if val_mae < best_loss:
+            best_loss = val_mae
         print(
-            f'training loss is {train_loss}, val loss is {val_loss}, time : {time.time() - start_time}, lr:{optimizer.param_groups[0]["lr"]}')
+            f'training loss is {train_loss}, val loss is {val_mae}, time : {time.time() - start_time}, lr:{optimizer.param_groups[0]["lr"]}')
         scheduler.step()
 
     print(f'best loss: {best_loss}')
@@ -312,60 +300,80 @@ def map_fn(flags):
     # if use multi-gpu
     # torch.save(mymodel.module.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
 
-
-def delete_diag(batch):
-    mat_ones = torch.ones((batch, batch), requires_grad=False)
-    delete_diag_mat = mat_ones - torch.diag_embed(torch.diag(mat_ones))
-    return delete_diag_mat
-
-
-def get_align_target(labels, gender):
-    idx = labels
-    gender = gender.squeeze()
-    labels_mat = torch.index_select(torch.index_select(dis, 0, idx), 1, idx)
-    one_hot_gender = F.one_hot(gender.type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
-    # labels_mat = torch.matmul(one_hot, one_hot.t())
-    gender_mat = torch.matmul(one_hot_gender, one_hot_gender.t())
-
-    return (labels_mat * gender_mat).float().detach()
+    train_test_dataset = BAAValDataset(train_df, train_path)
+    train_test_dataloader = torch.utils.data.DataLoader(
+        train_test_dataset,
+        batch_size=flags['batch_size'],
+        shuffle=False,
+        num_workers=flags['num_workers'],
+        pin_memory=True
+    )
 
 
-def cos_similarity(logits):
-    logit_nrom = logits / torch.norm(logits, dim=1, keepdim=True)
-    similarity = torch.matmul(logit_nrom, logit_nrom.t())
-    return similarity
+    # save log
+    with torch.no_grad():
+        train_record = [['label', 'pred']]
+        train_record_path = os.path.join(save_path, f"train_result.csv")
+        train_length = 0.
+        total_loss = 0.
+        mymodel.eval()
+        for idx, data in enumerate(train_test_dataloader):
+            image, gender = data[0]
+            image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
+            batch_size = len(data[1])
+            label = data[1].cuda()
 
-def relative_pos_dis():
-    dis = torch.zeros((1, 230))
-    for i in range(230):
-        age_vector = torch.zeros((1, 230))
-        if i < 2:
-            j = i
-            age_vector[0][i + 1] = 1
-            age_vector[0][i + 2] = 1
-            while j >= 0:
-                age_vector[0][j] = 1
-                j -= 1
-            dis = torch.cat((dis, age_vector), dim=0)
-            continue
-        if i > 227:
-            j = i
-            age_vector[0][i - 1] = 1
-            age_vector[0][i - 2] = 1
-            while j < 230:
-                age_vector[0][j] = 1
-                j += 1
-            dis = torch.cat((dis, age_vector), dim=0)
-            continue
-        age_vector[0][i-2] = 1
-        age_vector[0][i-1] = 1
-        age_vector[0][i] = 1
-        age_vector[0][i+1] = 1
-        age_vector[0][i+2] = 1
-        dis = torch.cat((dis, age_vector), dim=0)
-    return dis[1:]
+            y_pred, _ = mymodel(image, gender)
 
+            output = torch.argmax(y_pred, dim=1)+1
+
+            output = torch.squeeze(output)
+            label = torch.squeeze(label)
+            for i in range(output.shape[0]):
+                train_record.append([label[i].item(), round(output[i].item(), 2)])
+            assert output.shape == label.shape, "pred and output isn't the same shape"
+
+            total_loss += F.l1_loss(output, label, reduction='sum').item()
+            train_length += batch_size
+        print(f"training dataset length :{train_length}")
+        print(f'final training loss: {round(total_loss / train_length, 3)}')
+        with open(train_record_path, 'w', newline='') as csvfile:
+            writer_train = csv.writer(csvfile)
+            for row in train_record:
+                writer_train.writerow(row)
+
+    with torch.no_grad():
+        val_record = [['label', 'pred']]
+        val_record_path = os.path.join(save_path, f"val_result.csv")
+        val_length = 0.
+        val_loss = 0.
+        mymodel.eval()
+        for idx, data in enumerate(val_loader):
+            image, gender = data[0]
+            image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
+
+            batch_size = len(data[1])
+            label = data[1].cuda()
+
+            y_pred, _ = mymodel(image, gender)
+
+            output = torch.argmax(y_pred, dim=1)+1
+            if output.shape[0] != 1:
+                output = torch.squeeze(output)
+                label = torch.squeeze(label)
+            for i in range(output.shape[0]):
+                val_record.append([label[i].item(), round(output[i].item(), 2)])
+            # assert output.shape == label.shape, "pred and output isn't the same shape"
+
+            val_loss += F.l1_loss(output, label, reduction='sum').item()
+            val_length += batch_size
+        print(f"valid dataset length :{val_length}")
+        print(f'final val loss: {round(val_loss / val_length, 3)}')
+        with open(val_record_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            for row in val_record:
+                writer.writerow(row)
 
 
 if __name__ == "__main__":
@@ -377,7 +385,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/Pretrained_1_100epoch_align_modify'
+    save_path = '../../autodl-tmp/main_lincls_100epoch'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
@@ -388,7 +396,6 @@ if __name__ == "__main__":
     flags['seed'] = 1
 
     data_dir = '../../autodl-tmp/archive'
-    # data_dir = r'E:/code/archive/masked_1K_fold/fold_1'
 
     train_csv = os.path.join(data_dir, "train.csv")
     train_df = pd.read_csv(train_csv)
@@ -399,10 +406,6 @@ if __name__ == "__main__":
 
     # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
     # train_ori_dir = '../archive/masked_1K_fold/'
-
-    # delete_diag_mat = delete_diag(flags['batch_size']).cuda()
-    dis = relative_pos_dis().detach().cuda()
-
     print(flags)
     print(f'{save_path} start')
     map_fn(flags)

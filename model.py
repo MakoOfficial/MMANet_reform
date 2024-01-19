@@ -1,5 +1,5 @@
-import numpy as np 
-import pandas as pd 
+import numpy as np
+import pandas as pd
 import os, sys, random
 import numpy as np
 import pandas as pd
@@ -22,7 +22,7 @@ from PIL import Image, ImageOps
 
 import glob
 
-#from torchsummary import summary
+# from torchsummary import summary
 import logging
 
 import matplotlib.pyplot as plt
@@ -34,11 +34,11 @@ import warnings
 warnings.filterwarnings("ignore")
 from torchvision.models import resnet34, resnet50
 
-seed = 1#seed必须是int，可以自行设置
+seed = 1  # seed必须是int，可以自行设置
 torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)#让显卡产生的随机数一致
-torch.cuda.manual_seed_all(seed)#多卡模式下，让所有显卡生成的随机数一致？这个待验证
-np.random.seed(seed)#numpy产生的随机数一致
+torch.cuda.manual_seed(seed)  # 让显卡产生的随机数一致
+torch.cuda.manual_seed_all(seed)  # 多卡模式下，让所有显卡生成的随机数一致？这个待验证
+np.random.seed(seed)  # numpy产生的随机数一致
 random.seed(seed)
 
 # CUDA中的一些运算，如对sparse的CUDA张量与dense的CUDA张量调用torch.bmm()，它通常使用不确定性算法。
@@ -115,14 +115,14 @@ from torchvision.models import resnet34, resnet50, efficientnet_v2_s, mobilenet_
 
 
 def get_My_resnet34():
-    model = resnet34(pretrained = True)
+    model = resnet34(pretrained=True)
     output_channels = model.fc.in_features
     model = list(model.children())[:-2]
     return model, output_channels
 
 
 def get_My_resnet50(pretrained=None):
-    model = resnet50(pretrained = pretrained)
+    model = resnet50(pretrained=pretrained)
     output_channels = model.fc.in_features
     model = list(model.children())[:-2]
     return model, output_channels
@@ -150,6 +150,7 @@ def get_My_inceptionv4():
     model = nn.Sequential(*model)
     return model, output_channels
 
+
 def get_My_inceptionv3():
     model = inceptionv3(pretrained=None)
     output_channels = model.last_linear.in_features
@@ -158,6 +159,7 @@ def get_My_inceptionv3():
     model = nn.Sequential(*model)
     return model, output_channels
 
+
 def get_My_inceptionresnetv2():
     model = inceptionresnetv2(pretrained=None)
     output_channels = model.last_linear.in_features
@@ -165,6 +167,7 @@ def get_My_inceptionresnetv2():
 
     model = nn.Sequential(*model)
     return model, output_channels
+
 
 def get_My_xception():
     model = xception(pretrained=None)
@@ -193,6 +196,7 @@ def get_My_mobilenetv2():
     model = nn.Sequential(*model)
     return model, output_channels
 
+
 class baseline(nn.Module):
 
     def __init__(self, gender_length, backbone, out_channels) -> None:
@@ -207,7 +211,7 @@ class baseline(nn.Module):
         )
 
         self.MLP = nn.Sequential(
-            nn.Linear(in_features=out_channels+gender_length, out_features=1024),
+            nn.Linear(in_features=out_channels + gender_length, out_features=1024),
             nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Linear(1024, 512),
@@ -258,15 +262,15 @@ class Res50Align(nn.Module):
         )
 
         self.MLP = nn.Sequential(
-            nn.Linear(in_features=out_channels+gender_length, out_features=1024),
+            nn.Linear(in_features=out_channels + gender_length, out_features=1024),
             nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Linear(1024, 512),
-            nn.BatchNorm1d(512),
-            nn.ReLU(),
+            # nn.BatchNorm1d(512),
+            # nn.ReLU(),
         )
 
-        self.classifer = nn.Linear(512, 230)
+        # self.classifer = nn.Linear(512, 230)
 
     def forward(self, x, gender):
         x = self.backbone(x)
@@ -278,52 +282,66 @@ class Res50Align(nn.Module):
 
         logits = self.MLP(torch.cat((x, gender_encode), dim=-1))
 
-        return self.classifer(logits), logits
+        return logits
+
+
+class classify(nn.Module):
+
+    def __init__(self, backbone) -> None:
+        super(classify, self).__init__()
+        self.backbone = backbone
+
+        self.classifier = nn.Linear(512, 230)
+
+    def forward(self, x, gender):
+        x = self.backbone(x, gender)
+        return self.classifier(x)
 
 
 class Pooling_attention(nn.Module):
-  def __init__(self, input_channels, kernel_size = 1):
-    super(Pooling_attention, self).__init__()
-    self.pooling_attention = nn.Sequential(
-        nn.Conv2d(input_channels, 1, kernel_size = kernel_size, padding = kernel_size//2),
-        nn.ReLU()
-    )
-  def forward(self, x):
-    return self.pooling_attention(x) 
+    def __init__(self, input_channels, kernel_size=1):
+        super(Pooling_attention, self).__init__()
+        self.pooling_attention = nn.Sequential(
+            nn.Conv2d(input_channels, 1, kernel_size=kernel_size, padding=kernel_size // 2),
+            nn.ReLU()
+        )
 
-
+    def forward(self, x):
+        return self.pooling_attention(x)
 
 
 class Part_Relation(nn.Module):
-  def __init__(self, input_channels, reduction = [16], level = 1):
-    super(Part_Relation, self).__init__()
-    
-    modules = []
-    for i in range(level):
-        output_channels = input_channels//reduction[i]
-        modules.append(nn.Conv2d(input_channels, output_channels, kernel_size = 1))
-        modules.append(nn.BatchNorm2d(output_channels))
-        modules.append(nn.ReLU())
-        input_channels = output_channels
+    def __init__(self, input_channels, reduction=[16], level=1):
+        super(Part_Relation, self).__init__()
 
-    self.pooling_attention_0 = nn.Sequential(*modules)
-    self.pooling_attention_1 = Pooling_attention(input_channels, 1)
-    self.pooling_attention_3 = Pooling_attention(input_channels, 3)
-    self.pooling_attention_5 = Pooling_attention(input_channels, 5)
+        modules = []
+        for i in range(level):
+            output_channels = input_channels // reduction[i]
+            modules.append(nn.Conv2d(input_channels, output_channels, kernel_size=1))
+            modules.append(nn.BatchNorm2d(output_channels))
+            modules.append(nn.ReLU())
+            input_channels = output_channels
 
-    self.last_conv =  nn.Sequential(
-        nn.Conv2d(3, 1, kernel_size = 1),
-        nn.Sigmoid()
-    )
-  def forward(self, x):
-    input = x
-    x = self.pooling_attention_0(x)
-    x = torch.cat([self.pooling_attention_1(x), self.pooling_attention_3(x), self.pooling_attention_5(x)], dim = 1)
-    x = self.last_conv(x)
-    return input - input*x
-    
-    model = nn.Sequential(*model)
-    return model, output_channels
+        self.pooling_attention_0 = nn.Sequential(*modules)
+        self.pooling_attention_1 = Pooling_attention(input_channels, 1)
+        self.pooling_attention_3 = Pooling_attention(input_channels, 3)
+        self.pooling_attention_5 = Pooling_attention(input_channels, 5)
+
+        self.last_conv = nn.Sequential(
+            nn.Conv2d(3, 1, kernel_size=1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        input = x
+        x = self.pooling_attention_0(x)
+        x = torch.cat([self.pooling_attention_1(x), self.pooling_attention_3(x), self.pooling_attention_5(x)], dim=1)
+        x = self.last_conv(x)
+        return input - input * x
+
+        model = nn.Sequential(*model)
+        return model, output_channels
+
 
 class BAA_New(nn.Module):
     def __init__(self, gender_encode_length, backbone, out_channels):
@@ -338,16 +356,11 @@ class BAA_New(nn.Module):
         self.backbone3 = backbone[7]
         self.part_relation3 = Part_Relation(2048, [8, 16], 2)
 
-        #3.788
+        # 3.788
         # self.part_relation0 = Part_Relation(256)
         # self.part_relation1 = Part_Relation(512, 32)
         # self.part_relation2 = Part_Relation(1024, 8, 2)
         # self.part_relation3 = Part_Relation(2048, 8, 2)
-
-        
-        
-        
-        
 
         self.gender_encoder = nn.Linear(1, gender_encode_length)
         self.gender_bn = nn.BatchNorm1d(gender_encode_length)
@@ -388,7 +401,7 @@ class BAA_New(nn.Module):
         gender_encode = self.gender_bn(self.gender_encoder(gender))
         gender_encode = F.relu(gender_encode)
 
-        x = torch.cat([x,  gender_encode], dim = 1)
+        x = torch.cat([x, gender_encode], dim=1)
 
         x = self.fc(x)
 
@@ -400,9 +413,8 @@ class BAA_New(nn.Module):
 
         return feature_map, gender_encode, image_feature, x
 
-    def fine_tune(self, need_fine_tune = True):
+    def fine_tune(self, need_fine_tune=True):
         self.train(need_fine_tune)
-
 
 
 class BAA_Base(nn.Module):
@@ -418,16 +430,11 @@ class BAA_Base(nn.Module):
         self.backbone3 = backbone[7]
         self.part_relation3 = Part_Relation(2048, [8, 16], 2)
 
-        #3.788
+        # 3.788
         # self.part_relation0 = Part_Relation(256)
         # self.part_relation1 = Part_Relation(512, 32)
         # self.part_relation2 = Part_Relation(1024, 8, 2)
         # self.part_relation3 = Part_Relation(2048, 8, 2)
-
-        
-        
-        
-        
 
         self.gender_encoder = nn.Linear(1, gender_encode_length)
         self.gender_bn = nn.BatchNorm1d(gender_encode_length)
@@ -468,7 +475,7 @@ class BAA_Base(nn.Module):
         gender_encode = self.gender_bn(self.gender_encoder(gender))
         gender_encode = F.relu(gender_encode)
 
-        x = torch.cat([x,  gender_encode], dim = 1)
+        x = torch.cat([x, gender_encode], dim=1)
 
         x = self.fc(x)
 
@@ -478,11 +485,10 @@ class BAA_Base(nn.Module):
         #
         # x = self.output(x)
 
-        return  x
+        return x
 
-    def fine_tune(self, need_fine_tune = True):
+    def fine_tune(self, need_fine_tune=True):
         self.train(need_fine_tune)
-
 
 
 class Self_Attention_Adj(nn.Module):
@@ -496,7 +502,7 @@ class Self_Attention_Adj(nn.Module):
 
         self.leak_relu = nn.LeakyReLU()
 
-        self.softmax = nn.Softmax(dim = 1)
+        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):
         x = x.transpose(1, 2)
@@ -504,7 +510,6 @@ class Self_Attention_Adj(nn.Module):
         K = self.leak_relu(torch.matmul(x, self.key))
 
         return self.softmax(torch.matmul(Q, K.transpose(1, 2)))
-
 
 
 class Graph_GCN(nn.Module):
@@ -515,7 +520,7 @@ class Graph_GCN(nn.Module):
         self.output_size = output_size
         self.weight = nn.Parameter(torch.empty(feature_size, output_size))
         nn.init.kaiming_uniform_(self.weight)
-        
+
     def forward(self, x, A):
         x = torch.matmul(A, x.transpose(1, 2))
         return (torch.matmul(x, self.weight)).transpose(1, 2)
@@ -525,12 +530,12 @@ class Graph_BAA(nn.Module):
     def __init__(self, backbone):
         super(Graph_BAA, self).__init__()
         self.backbone = backbone
-        #freeze image backbone
+        # freeze image backbone
         for param in self.backbone.parameters():
             param.requires_grad = False
 
         self.adj_learning = Self_Attention_Adj(2048, 256)
-        self.gconv = Graph_GCN(16*16, 2048, 1024)
+        self.gconv = Graph_GCN(16 * 16, 2048, 1024)
 
         self.fc0 = nn.Linear(1024 + 32, 1024)
         self.bn0 = nn.BatchNorm1d(1024)
@@ -541,21 +546,21 @@ class Graph_BAA(nn.Module):
         self.output = nn.Linear(1024, 1)
 
     def forward(self, image, gender):
-        #input image to backbone, 16*16*2048
+        # input image to backbone, 16*16*2048
         feature_map, gender, image_feature, cnn_result = self.backbone(image, gender)
-        node_feature = feature_map.view(-1, 2048, 16*16)
+        node_feature = feature_map.view(-1, 2048, 16 * 16)
         A = self.adj_learning(node_feature)
         x = F.leaky_relu(self.gconv(node_feature, A))
         x = torch.squeeze(F.adaptive_avg_pool1d(x, 1))
         graph_feature = x
-        x = torch.cat([x, gender], dim = 1)
+        x = torch.cat([x, gender], dim=1)
 
         x = F.relu(self.bn0(self.fc0(x)))
         # x = F.relu(self.bn1(self.fc1(x)))
 
-        return image_feature,  graph_feature, gender, (self.output(x), cnn_result)
+        return image_feature, graph_feature, gender, (self.output(x), cnn_result)
 
-    def fine_tune(self, need_fine_tune = True):
+    def fine_tune(self, need_fine_tune=True):
         self.train(need_fine_tune)
         self.backbone.eval()
 
@@ -564,7 +569,7 @@ class Ensemble(nn.Module):
     def __init__(self, model):
         super(Ensemble, self).__init__()
         self.model = model
-        #freeze image backbone
+        # freeze image backbone
         for param in self.model.parameters():
             param.requires_grad = False
 
@@ -582,19 +587,18 @@ class Ensemble(nn.Module):
             nn.Linear(512, 1)
         )
 
-
     def forward(self, image, gender):
-        image_feature,  graph_feature, gender, result = self.model(image, gender)
+        image_feature, graph_feature, gender, result = self.model(image, gender)
         # image_feature = self.image_encoder(image_feature)
         if self.training:
-            return (self.fc(torch.cat([image_feature, graph_feature, gender], dim = 1)) + result[0])/2
+            return (self.fc(torch.cat([image_feature, graph_feature, gender], dim=1)) + result[0]) / 2
         else:
-            return (self.fc(torch.cat([image_feature, graph_feature, gender], dim = 1)) + result[0])/2
+            return (self.fc(torch.cat([image_feature, graph_feature, gender], dim=1)) + result[0]) / 2
 
-        
-    def fine_tune(self, need_fine_tune = True):
+    def fine_tune(self, need_fine_tune=True):
         self.train(need_fine_tune)
         self.model.eval()
+
 
 if __name__ == '__main__':
     res50 = baseline(32, *get_My_resnet50())
