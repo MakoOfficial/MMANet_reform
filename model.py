@@ -129,7 +129,10 @@ def get_My_resnet50(pretrained=None):
 
 def get_My_VGG16_bn(pretrained=True):
     model = vgg16_bn(pretrained=pretrained)
+    output_channels = model.classifier[0].in_features
     model = list(model.children())[:-1]
+    return model, output_channels
+
 
 
 def get_My_se_resnet152():
@@ -261,6 +264,38 @@ class baseline_inceptionv3(nn.Module):
             nn.ReLU(),
             # nn.Linear(512, 1)
             nn.Linear(512, 230)
+        )
+
+    def forward(self, x, gender):
+        # print(f"x is {x.shape}")
+        x = self.backbone(x)
+        x = torch.flatten(x, 1)
+        gender_encode = self.gender_encoder(gender)
+
+        return self.MLP(torch.cat((x, gender_encode), dim=-1))
+
+
+class baseline_VGG16(nn.Module):
+
+    def __init__(self, gender_length, backbone, out_channels) -> None:
+        super(baseline_VGG16, self).__init__()
+        self.backbone = nn.Sequential(*backbone)
+        self.out_channels = out_channels
+
+        self.gender_encoder = nn.Sequential(
+            nn.Linear(1, gender_length),
+            nn.BatchNorm1d(gender_length),
+            nn.ReLU()
+        )
+
+        self.MLP = nn.Sequential(
+            nn.Linear(self.out_channels + gender_length, 4096),
+            nn.ReLU(True),
+            nn.Dropout(p=0.5),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(p=0.5),
+            nn.Linear(4096, 230),
         )
 
     def forward(self, x, gender):

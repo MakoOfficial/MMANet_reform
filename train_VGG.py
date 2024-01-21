@@ -225,16 +225,16 @@ def evaluate_fn(net, val_loader):
 
 
 import time
-from model import baseline_inceptionv3, get_My_inceptionv3
+from model import baseline_VGG16, get_My_VGG16_bn
 
 
 def map_fn(flags):
-    model_name = f'inceptionv3_CE_All_Pre'
+    model_name = f'VGG16_CE_All_Pre'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
-    mymodel = baseline_inceptionv3(32, *get_My_inceptionv3()).cuda()
+    mymodel = baseline_VGG16(32, *get_My_VGG16_bn()).cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
@@ -388,7 +388,7 @@ if __name__ == "__main__":
     parser.add_argument('num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/inceptv3_All_Pre'
+    save_path = '../../autodl-tmp/VGG16_All_Pre'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
