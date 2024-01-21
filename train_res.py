@@ -226,7 +226,7 @@ def evaluate_fn(net, val_loader):
 
 
 import time
-from model import Res50Align, get_My_resnet50
+from model import baseline, get_My_resnet50
 
 
 def map_fn(flags):
@@ -235,7 +235,7 @@ def map_fn(flags):
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
-    mymodel = Res50Align(32, *get_My_resnet50(pretrained=True)).cuda()
+    mymodel = baseline(32, *get_My_resnet50(pretrained=True)).cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 

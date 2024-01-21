@@ -161,7 +161,7 @@ def L1_penalty_multi(net, alpha):
     return alpha * loss
 
 
-def train_fn(net, train_loader, loss_fn, optimizer):
+def train_fn(net, train_loader, target_loader, loss_fn, optimizer):
     '''
     checkpoint is a dict
     '''
@@ -169,76 +169,63 @@ def train_fn(net, train_loader, loss_fn, optimizer):
     global training_loss
 
     net.train()
+    data_length = len(train_loader) * 32
+    record = torch.zeros((data_length, data_length), requires_grad=True).type(torch.FloatTensor).cuda()
 
-    target_feature = torch.zeros((1, 1024), requires_grad=False).type(torch.FloatTensor).cuda()
     total_labels = torch.zeros((1), requires_grad=False).type(torch.LongTensor).cuda()
     total_genders = torch.zeros((1), requires_grad=False).type(torch.LongTensor).cuda()
-    with torch.no_grad():
-        for batch_idx, data in enumerate(train_loader):
-            print(f'batch:{batch_idx + 1}')
-            image, gender = data[0]
-            label = (data[1] - 1).type(torch.LongTensor).cuda()
-            image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
-
-            batch_size = len(data[1])
-            # zero the parameter gradients
-            # optimizer.zero_grad()
-            # forward
-            logits = net(image, gender)
-            target_feature = torch.cat((target_feature, logits), dim=0)
-            label = label.clone().view(-1)
-            total_labels = torch.cat((total_labels, label), dim=0)
-            gender = gender.clone().view(-1)
-            total_genders = torch.cat((total_genders, gender), dim=0)
-
-            # align_target = get_align_target(label, gender)
-            # similarity = cos_similarity(logits)
-            # loss_similarity = loss_fn(similarity, align_target)
-
-            # backward,calculate gradients
-            # total_loss = loss_similarity
-            # total_loss.backward()
-            # # backward,update parameter
-            # optimizer.step()
-            # batch_loss = loss_similarity.item()
-            # print(f'train_loss {batch_loss}')
-
-            # training_loss += batch_loss
-            total_size += batch_size
-    target_feature = F.normalize(target_feature[1:]).t()
-    total_labels = total_labels[1:]
-    epoch_dis = torch.index_select(dis, 1, total_labels)
-    total_genders = total_genders[1:]
-    total_genders = F.one_hot(total_genders.type(torch.LongTensor), num_classes=2).squeeze().float().cuda().t()
+    total_labels_con = torch.zeros((1), requires_grad=False).type(torch.LongTensor).cuda()
+    total_genders_con = torch.zeros((1), requires_grad=False).type(torch.LongTensor).cuda()
     for batch_idx, data in enumerate(train_loader):
-        print(f'batch:{batch_idx + 1}')
         image, gender = data[0]
         label = (data[1] - 1).type(torch.LongTensor).cuda()
         image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
-        # batch_size = len(data[1])
-        # zero the parameter gradients
-        optimizer.zero_grad()
-        # forward
+        batch_size = len(data[1])
         logits = net(image, gender)
-        label = label.clone().view(-1)
-        gender = gender.clone().view(-1)
 
-        align_target = get_align_target(label, gender, epoch_dis, total_genders)
-        similarity = cos_similarity(logits, target_feature)
-        loss_similarity = loss_fn(similarity, align_target)
-
-        # backward,calculate gradients
-        # total_loss = loss_similarity
-        # total_loss.backward()
-        loss_similarity.backward()
-        # # backward,update parameter
-        optimizer.step()
-        batch_loss = loss_similarity.item()
-        # print(f'train_loss {batch_loss}')
-
-        training_loss += batch_loss
+        label = label.data.view(-1)
+        total_labels = torch.cat((total_labels, label), dim=0)
+        gender = gender.data.view(-1)
+        total_genders = torch.cat((total_genders, gender), dim=0)
+        row_ptr = batch_idx * batch_size
         total_size += batch_size
+
+        for batch_idx_con, data_con in enumerate(target_loader):
+            col_ptr = batch_idx_con * batch_size
+            image_con, gender_con = data_con[0]
+            label_con = (data_con[1] - 1).type(torch.LongTensor).cuda()
+            image_con, gender_con = image_con.type(torch.FloatTensor).cuda(), gender_con.type(torch.FloatTensor).cuda()
+            print(batch_idx_con)
+            logits_con = net(image_con, gender_con)
+
+            if batch_idx == 0:
+                label_con = label_con.data.view(-1)
+                total_labels_con = torch.cat((total_labels_con, label_con), dim=0)
+                gender_con = gender_con.data.view(-1)
+                total_genders_con = torch.cat((total_genders_con, gender_con), dim=0)
+
+            batch_similarity = cos_similarity(logits, logits_con) / 2 # BxB
+            # print(batch_similarity.shape)
+            record[row_ptr:row_ptr + batch_size, col_ptr:col_ptr + batch_size] = batch_similarity.detach()
+            del image_con
+            del gender_con
+            del label_con
+            del logits_con
+            del batch_similarity
+
+    total_labels = total_labels[1:]
+    total_genders = total_genders[1:]
+    total_labels_con = total_labels_con[1:]
+    total_genders_con = total_genders_con[1:]
+
+    target = get_align_target(total_labels, total_genders, total_labels_con, total_genders_con)
+    loss = loss_fn(record, target)
+    loss.backward()
+    optimizer.step()
+    optimizer.zero_grad()
+    training_loss = loss.item()
+
     return training_loss / total_size
 
 
@@ -267,24 +254,12 @@ def evaluate_fn(net, val_loader, loss_fn):
             gender = gender.clone().view(-1)
             total_genders = torch.cat((total_genders, gender), dim=0)
 
-            # align_target = get_align_target(label, gender).cpu()
-            # print(align_target)
-            # similarity = cos_similarity(logits).cpu()
-            # print(f'similarity.shape :{similarity.shape}')
-            # print(f'align_target.shape :{align_target.shape}')
-            # batch_loss = loss_fn(similarity, align_target).item()
-            # print(f'valid_loss {batch_loss}')
-
-            # print(batch_loss/len(data[1]))
-            # mae_loss += batch_loss
         feature = feature[1:]
         total_labels = total_labels[1:]
         total_genders = total_genders[1:]
-        epoch_dis = torch.index_select(dis, 1, total_labels)
-        align_target = get_align_target(total_labels, total_genders, epoch_dis=epoch_dis,
-                                        total_genders=F.one_hot(total_genders.type(torch.LongTensor), num_classes=2).squeeze().float().cuda().t())
-        similarity = cos_similarity(feature, F.normalize(feature).t())
-        loss_similarity = loss_fn(similarity, align_target)
+        align_target = get_align_target(total_labels, total_genders, total_labels, total_genders)
+        similarity = cos_similarity(feature, feature)
+        loss_similarity = loss_fn(similarity, align_target) / 2
         mae_loss = loss_similarity.item()
     return mae_loss
 
@@ -313,6 +288,15 @@ def map_fn(flags):
         shuffle=True,
         num_workers=flags['num_workers'],
         drop_last=True,
+        pin_memory=True
+    )
+
+    target_loader = torch.utils.data.DataLoader(
+        train_set,
+        batch_size=flags['batch_size'],
+        shuffle=True,
+        num_workers=flags['num_workers'],
+        drop_last=False,
         pin_memory=True
     )
 
@@ -355,7 +339,7 @@ def map_fn(flags):
 
 
         start_time = time.time()
-        train_fn(mymodel, train_loader, loss_fn, optimizer)
+        train_fn(mymodel, train_loader, target_loader, loss_fn, optimizer)
 
         ## Evaluation
         # Sets net to eval and no grad context
@@ -380,20 +364,22 @@ def delete_diag(batch):
     return delete_diag_mat
 
 
-def get_align_target(labels, gender, epoch_dis, total_genders):
-    idx = labels
-    gender = gender.squeeze()
-    labels_mat = torch.index_select(epoch_dis, 0, idx)
-    one_hot_gender = F.one_hot(gender.type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
+def get_align_target(labels, gender, target_labels, target_gender):
+    row_idx = labels
+    col_idx = target_labels
+    labels_mat = torch.index_select(torch.index_select(dis, 0, row_idx), 1, col_idx)
+    gender_row = F.one_hot(gender.type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
+    gender_col = F.one_hot(target_gender.type(torch.LongTensor), num_classes=2).squeeze().float().cuda()
     # labels_mat = torch.matmul(one_hot, one_hot.t())
-    gender_mat = torch.matmul(one_hot_gender, total_genders)
+    gender_mat = torch.matmul(gender_row, gender_col.t())
 
     return (labels_mat * gender_mat).float().detach()
 
 
-def cos_similarity(logits, target_feature):
+def cos_similarity(logits, target):
     logit_nrom = F.normalize(logits)
-    similarity = torch.mm(logit_nrom, target_feature)
+    target_norm = F.normalize(target)
+    similarity = torch.mm(logit_nrom, target_norm.t())
     return similarity
 
 
@@ -439,17 +425,17 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
     save_path = '../../autodl-tmp/Pretrained_1_50epoch_alignAll'
-    os.makedirs(save_path, exist_ok=True)
+    # os.makedirs(save_path, exist_ok=True)
 
     flags = {}
     flags['lr'] = 5e-4
-    flags['batch_size'] = 8
-    flags['num_workers'] = 8
+    flags['batch_size'] = 2
+    flags['num_workers'] = 4
     flags['num_epochs'] = 50
     flags['seed'] = 1
 
-    data_dir = '../../autodl-tmp/archive'
-    # data_dir = r'E:/code/archive/masked_1K_fold/fold_1'
+    # data_dir = '../../autodl-tmp/archive'
+    data_dir = r'E:/code/archive/masked_1K_fold/fold_1'
 
     train_csv = os.path.join(data_dir, "train.csv")
     train_df = pd.read_csv(train_csv)

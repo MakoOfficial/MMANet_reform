@@ -175,7 +175,7 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
         batch_size = len(data[1])
         # label = F.one_hot(data[1]-1, num_classes=230).float().cuda()
         label = (data[1] - 1).type(torch.LongTensor).cuda()
-        print(image.shape)
+        # print(image.shape)
         # zero the parameter gradients
         optimizer.zero_grad()
         # forward
@@ -225,16 +225,16 @@ def evaluate_fn(net, val_loader):
 
 
 import time
-from model import baseline, get_My_inceptionv3
+from model import baseline_inceptionv3, get_My_inceptionv3
 
 
 def map_fn(flags):
-    model_name = f'inceptionv3_CE_All_woPre'
+    model_name = f'inceptionv3_CE_All_Pre'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
-    mymodel = baseline(32, *get_My_inceptionv3()).cuda()
+    mymodel = baseline_inceptionv3(32, *get_My_inceptionv3()).cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
@@ -263,9 +263,6 @@ def map_fn(flags):
 
     global best_loss
     best_loss = float('inf')
-    #   loss_fn =  nn.MSELoss(reduction = 'sum')
-    # loss_fn = nn.L1Loss(reduction='sum')
-    # loss_fn = nn.BCELoss(reduction='sum')
     loss_fn = nn.CrossEntropyLoss(reduction='sum')
     lr = flags['lr']
 
@@ -402,6 +399,7 @@ if __name__ == "__main__":
     flags['seed'] = 1
 
     data_dir = '../../autodl-tmp/archive'
+    # data_dir = r'E:/code/archive/masked_1K_fold/fold_1'
 
     train_csv = os.path.join(data_dir, "train.csv")
     train_df = pd.read_csv(train_csv)
@@ -412,5 +410,5 @@ if __name__ == "__main__":
 
     # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
     # train_ori_dir = '../archive/masked_1K_fold/'
-    print(f'start')
+    print(f'{save_path} start')
     map_fn(flags)

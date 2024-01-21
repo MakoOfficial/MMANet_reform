@@ -110,8 +110,8 @@ from torch.nn.parameter import Parameter
 import warnings
 
 warnings.filterwarnings("ignore")
-from pretrainedmodels import se_resnext101_32x4d, se_resnet152, xception, inceptionv4, inceptionresnetv2, inceptionv3
-from torchvision.models import resnet34, resnet50, efficientnet_v2_s, mobilenet_v2
+from pretrainedmodels import se_resnext101_32x4d, se_resnet152, xception, inceptionv4, inceptionresnetv2
+from torchvision.models import resnet34, resnet50, efficientnet_v2_s, mobilenet_v2, inception_v3, vgg16_bn
 
 
 def get_My_resnet34():
@@ -126,6 +126,10 @@ def get_My_resnet50(pretrained=None):
     output_channels = model.fc.in_features
     model = list(model.children())[:-2]
     return model, output_channels
+
+def get_My_VGG16_bn(pretrained=True):
+    model = vgg16_bn(pretrained=pretrained)
+    model = list(model.children())[:-1]
 
 
 def get_My_se_resnet152():
@@ -152,9 +156,11 @@ def get_My_inceptionv4():
 
 
 def get_My_inceptionv3():
-    model = inceptionv3(pretrained=None)
-    output_channels = model.last_linear.in_features
-    model = list(model.children())[:-3]
+    model = inception_v3(pretrained=True)
+    output_channels = model.fc.in_features
+    voidLayer = nn.Sequential()
+    model.AuxLogits = voidLayer
+    model = list(model.children())[:-1]
 
     model = nn.Sequential(*model)
     return model, output_channels
@@ -162,7 +168,7 @@ def get_My_inceptionv3():
 
 def get_My_inceptionresnetv2():
     model = inceptionresnetv2(pretrained=None)
-    output_channels = model.last_linear.in_features
+    output_channels = model.fc.in_features
     model = list(model.children())[:-2]
 
     model = nn.Sequential(*model)
@@ -232,20 +238,38 @@ class baseline(nn.Module):
 
         return self.MLP(torch.cat((x, gender_encode), dim=-1))
 
-    def manifold_output(self, x, gender):
+
+class baseline_inceptionv3(nn.Module):
+
+    def __init__(self, gender_length, backbone, out_channels) -> None:
+        super(baseline_inceptionv3, self).__init__()
+        self.backbone = nn.Sequential(*backbone)
+        self.out_channels = out_channels
+
+        self.gender_encoder = nn.Sequential(
+            nn.Linear(1, gender_length),
+            nn.BatchNorm1d(gender_length),
+            nn.ReLU()
+        )
+
+        self.MLP = nn.Sequential(
+            nn.Linear(in_features=out_channels + gender_length, out_features=1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            # nn.Linear(512, 1)
+            nn.Linear(512, 230)
+        )
+
+    def forward(self, x, gender):
+        # print(f"x is {x.shape}")
         x = self.backbone(x)
-        x = F.adaptive_avg_pool2d(x, 1)
-        x = torch.squeeze(x)
-        x = x.view(-1, self.out_channels)
-
+        x = torch.flatten(x, 1)
         gender_encode = self.gender_encoder(gender)
-        x = torch.cat((x, gender_encode), dim=-1)
-        for i in range(len(self.MLP)):
-            x = self.MLP[i](x)
-            if i == 5:
-                ReLU_out = x
 
-        return ReLU_out
+        return self.MLP(torch.cat((x, gender_encode), dim=-1))
 
 
 class Res50Align(nn.Module):
