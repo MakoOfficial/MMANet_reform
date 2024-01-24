@@ -25,7 +25,7 @@ from albumentations import Compose, Resize
 import warnings
 
 import torchvision.transforms as transforms
-from utils.func import print
+from utils.func import print, balance_data
 
 warnings.filterwarnings("ignore")
 
@@ -146,8 +146,8 @@ def L1_penalty(net, alpha):
     loss = 0
     for param in net.MLP.parameters():
         loss += torch.sum(torch.abs(param))
-    for param2 in net.classifer.parameters():
-        loss += torch.sum(torch.abs(param2))
+    # for param2 in net.classifer.parameters():
+    #     loss += torch.sum(torch.abs(param2))
 
     return alpha * loss
 
@@ -180,7 +180,7 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
         # zero the parameter gradients
         optimizer.zero_grad()
         # forward
-        y_pred, _ = net(image, gender)
+        y_pred = net(image, gender)
         y_pred = y_pred.squeeze()
         label = label.squeeze()
         # print(y_pred)
@@ -212,7 +212,7 @@ def evaluate_fn(net, val_loader):
 
             label = data[1].cuda()
 
-            y_pred, _ = net(image, gender)
+            y_pred = net(image, gender)
             # y_pred = net(image, gender)
             y_pred = torch.argmax(y_pred, dim=1)+1
 
@@ -239,7 +239,7 @@ def map_fn(flags):
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
-    train_set, val_set = create_data_loader(train_df, valid_df, train_path, valid_path)
+    train_set, val_set = create_data_loader(balanced_df, valid_df, train_path, valid_path)
     print(train_set.__len__())
     # Creates dataloaders, which load data in batches
     # Note: test loader is not shuffled or sampled
@@ -331,7 +331,7 @@ def map_fn(flags):
             batch_size = len(data[1])
             label = data[1].cuda()
 
-            y_pred, _ = mymodel(image, gender)
+            y_pred = mymodel(image, gender)
 
             output = torch.argmax(y_pred, dim=1)+1
 
@@ -363,7 +363,7 @@ def map_fn(flags):
             batch_size = len(data[1])
             label = data[1].cuda()
 
-            y_pred, _ = mymodel(image, gender)
+            y_pred = mymodel(image, gender)
 
             output = torch.argmax(y_pred, dim=1)+1
             if output.shape[0] != 1:
@@ -392,17 +392,18 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/Res50_AllPre_1_100epoch'
+    save_path = '../../autodl-tmp/balanceData640Pre'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
     flags['lr'] = 5e-4
     flags['batch_size'] = 32
     flags['num_workers'] = 8
-    flags['num_epochs'] = 100
+    flags['num_epochs'] = 75
     flags['seed'] = 1
 
-    data_dir = '../../autodl-tmp/archive'
+    data_dir = '../../autodl-tmp/archive/'
+    # data_dir = r'E:/code/archive/masked_1K_fold/fold_1'
 
     train_csv = os.path.join(data_dir, "train.csv")
     train_df = pd.read_csv(train_csv)
@@ -411,8 +412,9 @@ if __name__ == "__main__":
     train_path = os.path.join(data_dir, "train")
     valid_path = os.path.join(data_dir, "valid")
 
+    balanced_df = balance_data(data_dir, "train.csv", 10, 640)
+
     # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
     # train_ori_dir = '../archive/masked_1K_fold/'
-    print(flags)
     print(f'{save_path} start')
     map_fn(flags)

@@ -167,7 +167,7 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
     global training_loss
 
     net.train()
-    print(net)
+    # print(net)
     for batch_idx, data in enumerate(train_loader):
         image, gender = data[0]
         image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
@@ -388,7 +388,7 @@ if __name__ == "__main__":
     parser.add_argument('num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/VGG16_All_Pre'
+    save_path = '../../autodl-tmp/trainQiu/VGG16_All_Pre'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
@@ -398,15 +398,15 @@ if __name__ == "__main__":
     flags['num_epochs'] = args.num_epochs
     flags['seed'] = 1
 
-    data_dir = '../../autodl-tmp/archive'
+    data_dir = '../../autodl-tmp/archiveQiu/'
     # data_dir = r'E:/code/archive/masked_1K_fold/fold_1'
 
     train_csv = os.path.join(data_dir, "train.csv")
     train_df = pd.read_csv(train_csv)
     valid_csv = os.path.join(data_dir, "valid.csv")
     valid_df = pd.read_csv(valid_csv)
-    train_path = os.path.join(data_dir, "train")
-    valid_path = os.path.join(data_dir, "valid")
+    train_path = os.path.join(data_dir, "train/rotateImg/")
+    valid_path = os.path.join(data_dir, "valid/rotateImg/")
 
     # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
     # train_ori_dir = '../archive/masked_1K_fold/'

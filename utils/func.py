@@ -4,6 +4,7 @@ import torch
 from torch import nn
 import random
 import numpy as np
+import pandas as pd
 
 seed = 1#seed必须是int，可以自行设置
 torch.manual_seed(seed)
@@ -146,4 +147,25 @@ def L1_regular(net, alpha):
     return alpha * loss
 
 
-# def mat_age(train_set, )
+def balance_data(data_dir, csv_name, category_num, aug_num):
+    """重构数据级结构"""
+    age_df = pd.read_csv(os.path.join(data_dir, csv_name))
+    print(age_df.shape[0], 'total')
+    age_df['male'] = age_df['male'].astype('float32')
+    age_df['gender'] = age_df['male'].map(lambda x:'male' if x else 'female')
+
+    global boneage_mean
+    boneage_mean = age_df['boneage'].mean()
+    global boneage_div
+    boneage_div = age_df['boneage'].std()
+
+    age_df['zscore'] = age_df['boneage'].map(lambda x: (x-boneage_mean)/boneage_div)
+    age_df.dropna(inplace = True)
+    age_df['boneage_category'] = pd.cut(age_df['boneage'], category_num)
+
+    print('train', age_df.shape[0])
+    train_df = age_df.groupby(['boneage_category', 'male']).apply(lambda x: x.sample(aug_num, replace=True)).reset_index(drop=True)
+    # 注意的是，这里对df进行多列分组，因为boneage_category为10类， male为2类，所以总共有20类，而apply对每一类进行随机采样，并且有放回的抽取，所以会生成1w的数据
+    print('New Data Size:', train_df.shape[0], 'Old Size:', age_df.shape[0])
+    train_df.to_csv("balanced_train.csv")
+    return train_df

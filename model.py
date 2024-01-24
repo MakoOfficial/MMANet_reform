@@ -320,6 +320,16 @@ class Res50Align(nn.Module):
             nn.ReLU()
         )
 
+        # self.MLP = nn.Sequential(
+        #     nn.Linear(in_features=out_channels + gender_length, out_features=1024, bias=False),
+        #     nn.BatchNorm1d(1024),
+        #     nn.ReLU(inplace=True),
+        #     nn.Linear(1024, 512, bias=False),
+        #     nn.BatchNorm1d(512),
+        #     nn.ReLU(inplace=True),
+        #     nn.Linear(512, 230, bias=False),
+        #     # nn.BatchNorm1d(2048, affine=False)
+        # )
         self.MLP = nn.Sequential(
             nn.Linear(in_features=out_channels + gender_length, out_features=1024, bias=False),
             nn.BatchNorm1d(1024),
@@ -330,38 +340,6 @@ class Res50Align(nn.Module):
             nn.Linear(1024, 1024, bias=False),
             # nn.BatchNorm1d(2048, affine=False)
         )
-
-        # self.predictor = nn.Sequential(nn.Linear(2048, 512, bias=False),
-        #                                nn.BatchNorm1d(512),
-        #                                nn.ReLU(inplace=True),  # hidden layer
-        #                                nn.Linear(512, 2048))  # output layer
-
-        # self.classifer = nn.Linear(512, 230)
-
-    # def forward(self, x1, x2, gender):
-    #     x1 = self.backbone(x1)
-    #     x1 = F.adaptive_avg_pool2d(x1, 1)
-    #     x1 = torch.squeeze(x1)
-    #     x1 = x1.view(-1, self.out_channels)
-    #
-    #     x2 = self.backbone(x2)
-    #     x2 = F.adaptive_avg_pool2d(x2, 1)
-    #     x2 = torch.squeeze(x2)
-    #     x2 = x2.view(-1, self.out_channels)
-    #
-    #     gender1 = gender.clone()
-    #     gender2 = gender.clone()
-    #
-    #     gender_encode1 = self.gender_encoder(gender1)
-    #     gender_encode2 = self.gender_encoder(gender2)
-    #
-    #     z1 = self.MLP(torch.cat((x1, gender_encode1), dim=-1))
-    #     z2 = self.MLP(torch.cat((x2, gender_encode2), dim=-1))
-    #
-    #     p1 = self.predictor(z1)  # NxC
-    #     p2 = self.predictor(z2)  # NxC
-    #
-    #     return p1, p2, z1.detach(), z2.detach()
 
     def forward(self, x, gender):
         x = self.backbone(x)
