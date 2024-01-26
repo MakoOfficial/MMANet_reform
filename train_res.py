@@ -146,8 +146,8 @@ def L1_penalty(net, alpha):
     loss = 0
     for param in net.MLP.parameters():
         loss += torch.sum(torch.abs(param))
-    # for param2 in net.classifer.parameters():
-    #     loss += torch.sum(torch.abs(param2))
+    for param2 in net.classifier.parameters():
+        loss += torch.sum(torch.abs(param2))
 
     return alpha * loss
 

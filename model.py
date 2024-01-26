@@ -111,7 +111,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 from pretrainedmodels import se_resnext101_32x4d, se_resnet152, xception, inceptionv4, inceptionresnetv2
-from torchvision.models import resnet34, resnet50, efficientnet_v2_s, mobilenet_v2, inception_v3, vgg16_bn
+from torchvision.models import resnet34, resnet50, efficientnet_v2_s, mobilenet_v2, inception_v3, vgg16_bn, efficientnet_b3
 
 
 def get_My_resnet34():
@@ -187,14 +187,22 @@ def get_My_xception():
     return model, output_channels
 
 
-def get_My_efficientnetv2():
-    model = efficientnet_v2_s(weights=None)
-    # output_channels = model.last_linear.in_features
+def get_My_efficientnetb3():
+    model = efficientnet_b3(pretrained=True)
     output_channels = model.classifier[1].in_features
     model = list(model.children())[:-2]
-
-    model = nn.Sequential(*model)
     return model, output_channels
+
+def get_My_efficientnetb3_fusion():
+    model = efficientnet_b3(pretrained=True)
+    features = model.children().__next__()
+    modelList = list(features.children())
+    stage1 = modelList[:2]
+    stage2 = modelList[2]
+    stage3 = modelList[3]
+    stage4 = modelList[4:6]
+    backbone = [stage1, stage2, stage3, stage4]
+    return model, 240
 
 
 def get_My_mobilenetv2():
@@ -227,10 +235,23 @@ class baseline(nn.Module):
             nn.BatchNorm1d(512),
             nn.ReLU(),
             # nn.Linear(512, 1)
-            nn.Linear(512, 230)
+            # nn.Linear(512, 230)
         )
 
+        self.classifier = nn.Linear(512, 230)
+
     def forward(self, x, gender):
+        # print(f"x is {x.shape}")
+        x = self.backbone(x)
+        x = F.adaptive_avg_pool2d(x, 1)
+        x = torch.squeeze(x)
+        x = x.view(-1, self.out_channels)
+
+        gender_encode = self.gender_encoder(gender)
+
+        return self.classifier(self.MLP(torch.cat((x, gender_encode), dim=-1)))
+
+    def manifold(self, x, gender):
         # print(f"x is {x.shape}")
         x = self.backbone(x)
         x = F.adaptive_avg_pool2d(x, 1)
