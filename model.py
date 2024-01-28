@@ -193,17 +193,6 @@ def get_My_efficientnetb3():
     model = list(model.children())[:-2]
     return model, output_channels
 
-def get_My_efficientnetb3_fusion():
-    model = efficientnet_b3(pretrained=True)
-    features = model.children().__next__()
-    modelList = list(features.children())
-    stage1 = modelList[:2]
-    stage2 = modelList[2]
-    stage3 = modelList[3]
-    stage4 = modelList[4:6]
-    backbone = [stage1, stage2, stage3, stage4]
-    return model, 240
-
 
 def get_My_mobilenetv2():
     model = mobilenet_v2(weights=None)
@@ -239,6 +228,53 @@ class baseline(nn.Module):
         )
 
         self.classifier = nn.Linear(512, 230)
+
+    def forward(self, x, gender):
+        # print(f"x is {x.shape}")
+        x = self.backbone(x)
+        x = F.adaptive_avg_pool2d(x, 1)
+        x = torch.squeeze(x)
+        x = x.view(-1, self.out_channels)
+
+        gender_encode = self.gender_encoder(gender)
+
+        return self.classifier(self.MLP(torch.cat((x, gender_encode), dim=-1)))
+
+    def manifold(self, x, gender):
+        # print(f"x is {x.shape}")
+        x = self.backbone(x)
+        x = F.adaptive_avg_pool2d(x, 1)
+        x = torch.squeeze(x)
+        x = x.view(-1, self.out_channels)
+
+        gender_encode = self.gender_encoder(gender)
+
+        return self.MLP(torch.cat((x, gender_encode), dim=-1))
+
+
+class baselineMAE(nn.Module):
+
+    def __init__(self, gender_length, backbone, out_channels) -> None:
+        super(baselineMAE, self).__init__()
+        self.backbone = nn.Sequential(*backbone)
+        self.out_channels = out_channels
+
+        self.gender_encoder = nn.Sequential(
+            nn.Linear(1, gender_length),
+            nn.BatchNorm1d(gender_length),
+            nn.ReLU()
+        )
+
+        self.MLP = nn.Sequential(
+            nn.Linear(in_features=out_channels + gender_length, out_features=1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+        )
+
+        self.classifier = nn.Linear(512, 1)
 
     def forward(self, x, gender):
         # print(f"x is {x.shape}")
@@ -693,7 +729,7 @@ if __name__ == '__main__':
     res50 = baseline(32, *get_My_resnet50())
     res34 = baseline(32, *get_My_resnet34())
     mbnet = baseline(32, *get_My_mobilenetv2())
-    effiNet = baseline(32, *get_My_efficientnetv2())
+    effiNet = baseline(32, *get_My_efficientnetb3())
     xceptNet = baseline(32, *get_My_xception())
     inceptNetv3 = baseline(32, *get_My_inceptionv3())
     inceptNetv4 = baseline(32, *get_My_inceptionv4())

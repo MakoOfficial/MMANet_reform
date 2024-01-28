@@ -95,7 +95,7 @@ class BAATrainDataset(Dataset):
     def __init__(self, df, file_path):
         def preprocess_df(df):
             # nomalize boneage distribution
-            # df['zscore'] = df['boneage'].map(lambda x: (x - boneage_mean) / boneage_div)
+            df['zscore'] = df['boneage'].map(lambda x: (x - boneage_mean) / boneage_div)
             # change the type of gender, change bool variable to float32
             df['male'] = df['male'].astype('float32')
             df['bonage'] = df['boneage'].astype('float32')
@@ -111,7 +111,8 @@ class BAATrainDataset(Dataset):
         #         Tensor([row['male']])), row['zscore']
         return (transform_train(image=cv2.imread(f"{self.file_path}/{num}.png", cv2.IMREAD_COLOR))['image'],
                 # Tensor([row['male']])), Tensor([row['boneage']]).to(torch.int64)
-                Tensor([row['male']])), row['boneage']
+                # Tensor([row['male']])), row['boneage']
+                Tensor([row['male']])), row['zscore']
 
     def __len__(self):
         return len(self.df)
@@ -175,7 +176,7 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
 
         batch_size = len(data[1])
         # label = F.one_hot(data[1]-1, num_classes=230).float().cuda()
-        label = (data[1] - 1).type(torch.LongTensor).cuda()
+        label = data[1].type(torch.FloatTensor).cuda()
 
         # zero the parameter gradients
         optimizer.zero_grad()
@@ -214,10 +215,9 @@ def evaluate_fn(net, val_loader):
 
             y_pred = net(image, gender)
             # y_pred = net(image, gender)
-            y_pred = torch.argmax(y_pred, dim=1)+1
-
+            y_pred = (y_pred.cpu() * boneage_div) + boneage_mean
             y_pred = y_pred.squeeze()
-            label = label.squeeze()
+            label = label.cpu().squeeze()
 
             batch_loss = F.l1_loss(y_pred, label, reduction='sum').item()
             # print(batch_loss/len(data[1]))
@@ -226,16 +226,16 @@ def evaluate_fn(net, val_loader):
 
 
 import time
-from model import baseline, get_My_resnet50
+from model import baselineMAE, get_My_resnet50
 
 
 def map_fn(flags):
-    model_name = f'Res50_CE_All'
+    model_name = f'Res50_MSE_All'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
-    mymodel = baseline(32, *get_My_resnet50(pretrained=True)).cuda()
+    mymodel = baselineMAE(32, *get_My_resnet50(pretrained=True)).cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
@@ -265,9 +265,9 @@ def map_fn(flags):
     global best_loss
     best_loss = float('inf')
     #   loss_fn =  nn.MSELoss(reduction = 'sum')
-    # loss_fn = nn.L1Loss(reduction='sum')
+    loss_fn = nn.L1Loss(reduction='sum')
     # loss_fn = nn.BCELoss(reduction='sum')
-    loss_fn = nn.CrossEntropyLoss(reduction='sum')
+    # loss_fn = nn.CrossEntropyLoss(reduction='sum')
     lr = flags['lr']
 
     wd = 0
@@ -332,8 +332,9 @@ def map_fn(flags):
             label = data[1].cuda()
 
             y_pred = mymodel(image, gender)
-
-            output = torch.argmax(y_pred, dim=1)+1
+            y_pred = (y_pred.cpu() * boneage_div) + boneage_mean
+            output = y_pred
+            label = label.cpu()
 
             output = torch.squeeze(output)
             label = torch.squeeze(label)
@@ -364,8 +365,9 @@ def map_fn(flags):
             label = data[1].cuda()
 
             y_pred = mymodel(image, gender)
-
-            output = torch.argmax(y_pred, dim=1)+1
+            y_pred = (y_pred.cpu() * boneage_div) + boneage_mean
+            output = y_pred
+            label = label.cpu()
             if output.shape[0] != 1:
                 output = torch.squeeze(output)
                 label = torch.squeeze(label)
@@ -392,14 +394,14 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/histNorm_MSE'
+    save_path = '../../autodl-tmp/Res50PreMAE'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
     flags['lr'] = 5e-4
-    flags['batch_size'] = 32
+    flags['batch_size'] = 8
     flags['num_workers'] = 8
-    flags['num_epochs'] = 75
+    flags['num_epochs'] = 1
     flags['seed'] = 1
 
     data_dir = '../../autodl-tmp/archive_histNorm/'
@@ -411,6 +413,9 @@ if __name__ == "__main__":
     valid_df = pd.read_csv(valid_csv)
     train_path = os.path.join(data_dir, "train")
     valid_path = os.path.join(data_dir, "valid")
+
+    boneage_mean = train_df['boneage'].mean()
+    boneage_div = train_df['boneage'].std()
 
     # balanced_df = balance_data(data_dir, "train.csv", 10, 640)
 
