@@ -169,3 +169,13 @@ def balance_data(data_dir, csv_name, category_num, aug_num):
     print('New Data Size:', train_df.shape[0], 'Old Size:', age_df.shape[0])
     train_df.to_csv("balanced_train.csv")
     return train_df
+
+
+def LDL(label, vector_length=228):
+    label = int(label)
+    center_index = label - 1
+    std_dev = 1
+    distances = np.abs(np.arange(vector_length) - center_index)
+    gaussian_values = np.exp(-0.5 * (distances / std_dev) ** 2) / (std_dev * np.sqrt(2 * np.pi))
+
+    return gaussian_values

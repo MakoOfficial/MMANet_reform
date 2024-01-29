@@ -299,6 +299,53 @@ class baselineMAE(nn.Module):
         return self.MLP(torch.cat((x, gender_encode), dim=-1))
 
 
+class baselineLDL(nn.Module):
+
+    def __init__(self, gender_length, backbone, out_channels) -> None:
+        super(baselineLDL, self).__init__()
+        self.backbone = nn.Sequential(*backbone)
+        self.out_channels = out_channels
+
+        self.gender_encoder = nn.Sequential(
+            nn.Linear(1, gender_length),
+            nn.BatchNorm1d(gender_length),
+            nn.ReLU()
+        )
+
+        self.MLP = nn.Sequential(
+            nn.Linear(in_features=out_channels + gender_length, out_features=1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+        )
+
+        self.classifier = nn.Linear(512, 228)
+
+    def forward(self, x, gender):
+        # print(f"x is {x.shape}")
+        x = self.backbone(x)
+        x = F.adaptive_avg_pool2d(x, 1)
+        x = torch.squeeze(x)
+        x = x.view(-1, self.out_channels)
+
+        gender_encode = self.gender_encoder(gender)
+
+        return self.classifier(self.MLP(torch.cat((x, gender_encode), dim=-1)))
+
+    def manifold(self, x, gender):
+        # print(f"x is {x.shape}")
+        x = self.backbone(x)
+        x = F.adaptive_avg_pool2d(x, 1)
+        x = torch.squeeze(x)
+        x = x.view(-1, self.out_channels)
+
+        gender_encode = self.gender_encoder(gender)
+
+        return self.MLP(torch.cat((x, gender_encode), dim=-1))
+
+
 class baseline_inceptionv3(nn.Module):
 
     def __init__(self, gender_length, backbone, out_channels) -> None:

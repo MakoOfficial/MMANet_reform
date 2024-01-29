@@ -25,7 +25,7 @@ from albumentations import Compose, Resize
 import warnings
 
 import torchvision.transforms as transforms
-from utils.func import print, balance_data
+from utils.func import print, balance_data, LDL
 
 warnings.filterwarnings("ignore")
 
@@ -107,12 +107,13 @@ class BAATrainDataset(Dataset):
     def __getitem__(self, index):
         row = self.df.iloc[index]
         num = int(row['id'])
+        age = LDL(row['boneage'])
+
         # return (transform_train(image=read_image(f"{self.file_path}/{num}.png"))['image'],
         #         Tensor([row['male']])), row['zscore']
         return (transform_train(image=cv2.imread(f"{self.file_path}/{num}.png", cv2.IMREAD_COLOR))['image'],
                 # Tensor([row['male']])), Tensor([row['boneage']]).to(torch.int64)
-                # Tensor([row['male']])), row['boneage']
-                Tensor([row['male']])), row['zscore']
+                Tensor([row['male']])), age
 
     def __len__(self):
         return len(self.df)
@@ -176,7 +177,7 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
 
         batch_size = len(data[1])
         # label = F.one_hot(data[1]-1, num_classes=230).float().cuda()
-        label = data[1].type(torch.FloatTensor).cuda()
+        label = data[1].cuda()
 
         # zero the parameter gradients
         optimizer.zero_grad()
@@ -215,9 +216,10 @@ def evaluate_fn(net, val_loader):
 
             y_pred = net(image, gender)
             # y_pred = net(image, gender)
-            y_pred = (y_pred.cpu() * boneage_div) + boneage_mean
+            y_pred = torch.argmax(y_pred, dim=1)+1
+
             y_pred = y_pred.squeeze()
-            label = label.cpu().squeeze()
+            label = label.squeeze()
 
             batch_loss = F.l1_loss(y_pred, label, reduction='sum').item()
             # print(batch_loss/len(data[1]))
@@ -226,16 +228,16 @@ def evaluate_fn(net, val_loader):
 
 
 import time
-from model import baselineMAE, get_My_resnet50
+from model import baselineLDL, get_My_resnet50
 
 
 def map_fn(flags):
-    model_name = f'Res50_MSE_All'
+    model_name = f'Res50_LDL_All'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
-    mymodel = baselineMAE(32, *get_My_resnet50(pretrained=True)).cuda()
+    mymodel = baselineLDL(32, *get_My_resnet50(pretrained=True)).cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
@@ -332,9 +334,8 @@ def map_fn(flags):
             label = data[1].cuda()
 
             y_pred = mymodel(image, gender)
-            y_pred = (y_pred.cpu() * boneage_div) + boneage_mean
-            output = y_pred
-            label = label.cpu()
+
+            output = torch.argmax(y_pred, dim=1) + 1
 
             output = torch.squeeze(output)
             label = torch.squeeze(label)
@@ -365,9 +366,8 @@ def map_fn(flags):
             label = data[1].cuda()
 
             y_pred = mymodel(image, gender)
-            y_pred = (y_pred.cpu() * boneage_div) + boneage_mean
-            output = y_pred
-            label = label.cpu()
+
+            output = torch.argmax(y_pred, dim=1) + 1
             if output.shape[0] != 1:
                 output = torch.squeeze(output)
                 label = torch.squeeze(label)
@@ -394,7 +394,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/Res50PreMAE'
+    save_path = '../../autodl-tmp/Res50PreLDL'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
