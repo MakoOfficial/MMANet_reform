@@ -25,7 +25,7 @@ from albumentations import Compose, Resize
 import warnings
 
 import torchvision.transforms as transforms
-from utils.func import print, LDL
+from utils.func import print, balance_data, LDL
 
 warnings.filterwarnings("ignore")
 
@@ -107,13 +107,12 @@ class BAATrainDataset(Dataset):
     def __getitem__(self, index):
         row = self.df.iloc[index]
         num = int(row['id'])
-        age = LDL(row['boneage'])
 
         # return (transform_train(image=read_image(f"{self.file_path}/{num}.png"))['image'],
         #         Tensor([row['male']])), row['zscore']
         return (transform_train(image=cv2.imread(f"{self.file_path}/{num}.png", cv2.IMREAD_COLOR))['image'],
                 # Tensor([row['male']])), Tensor([row['boneage']]).to(torch.int64)
-                Tensor([row['male']])), age
+                Tensor([row['male']])), row['boneage'], LDL(row[['boneage']])
 
     def __len__(self):
         return len(self.df)
@@ -163,13 +162,13 @@ def L1_penalty_multi(net, alpha):
     return alpha * loss
 
 
-def train_fn(net, train_loader, loss_fn, epoch, optimizer):
+def train_fn(net, train_loader, loss_fn, loss_KL, epoch, optimizer):
     '''
     checkpoint is a dict
     '''
     global total_size
     global training_loss
-
+    ageTable = torch.arange(1, 229, requires_grad=False).type(torch.FloatTensor).cuda()
     net.train()
     for batch_idx, data in enumerate(train_loader):
         image, gender = data[0]
@@ -178,18 +177,24 @@ def train_fn(net, train_loader, loss_fn, epoch, optimizer):
         batch_size = len(data[1])
         # label = F.one_hot(data[1]-1, num_classes=230).float().cuda()
         label = data[1].cuda()
+        label_LDL = data[2].cuda()
 
         # zero the parameter gradients
         optimizer.zero_grad()
         # forward
         y_pred = net(image, gender)
-        y_pred = y_pred.squeeze()
-        label = label.squeeze()
+        y_pred = F.softmax(y_pred, dim=1)
+        age_pred = (y_pred*ageTable).sum(dim=-1).view(-1)
+        label = label.view(-1)
+
+        # KL
+        KLLoss = loss_KL(y_pred.log(), label_LDL)
+
         # print(y_pred)
         # print(y_pred, label)
-        loss = loss_fn(y_pred, label)
+        loss = loss_fn(age_pred, label)
         # backward,calculate gradients
-        total_loss = loss + L1_penalty(net, 1e-5)
+        total_loss = 0.5*KLLoss + loss + L1_penalty(net, 1e-5)
         total_loss.backward()
         # backward,update parameter
         optimizer.step()
@@ -205,6 +210,7 @@ def evaluate_fn(net, val_loader):
 
     global mae_loss
     global val_total_size
+    ageTable = torch.arange(1, 229, requires_grad=False).type(torch.FloatTensor).cuda()
     with torch.no_grad():
         for batch_idx, data in enumerate(val_loader):
             val_total_size += len(data[1])
@@ -216,10 +222,9 @@ def evaluate_fn(net, val_loader):
 
             y_pred = net(image, gender)
             # y_pred = net(image, gender)
-            y_pred = torch.argmax(y_pred, dim=1)+1
-
-            y_pred = y_pred.squeeze()
-            label = label.squeeze()
+            y_pred = F.softmax(y_pred, dim=1)
+            y_pred = (y_pred * ageTable).sum(dim=-1).view(-1)
+            label = label.view(-1)
 
             batch_loss = F.l1_loss(y_pred, label, reduction='sum').item()
             # print(batch_loss/len(data[1]))
@@ -232,7 +237,7 @@ from model import baselineLDL, get_My_resnet50
 
 
 def map_fn(flags):
-    model_name = f'Res50_LDL_All'
+    model_name = f'Res50SoftLabelHistNorm'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
@@ -268,6 +273,7 @@ def map_fn(flags):
     best_loss = float('inf')
     #   loss_fn =  nn.MSELoss(reduction = 'sum')
     loss_fn = nn.L1Loss(reduction='sum')
+    loss_KL = nn.KLDivLoss(reduction='sum')
     # loss_fn = nn.BCELoss(reduction='sum')
     # loss_fn = nn.CrossEntropyLoss(reduction='sum')
     lr = flags['lr']
@@ -291,7 +297,7 @@ def map_fn(flags):
         val_total_size = torch.tensor([0], dtype=torch.float32)
 
         start_time = time.time()
-        train_fn(mymodel, train_loader, loss_fn, epoch, optimizer)
+        train_fn(mymodel, train_loader, loss_fn, loss_KL, epoch, optimizer)
 
         ## Evaluation
         # Sets net to eval and no grad context
@@ -326,6 +332,7 @@ def map_fn(flags):
         train_length = 0.
         total_loss = 0.
         mymodel.eval()
+        ageTable = torch.arange(1, 229, requires_grad=False).type(torch.FloatTensor).cuda()
         for idx, data in enumerate(train_test_dataloader):
             image, gender = data[0]
             image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
@@ -334,11 +341,10 @@ def map_fn(flags):
             label = data[1].cuda()
 
             y_pred = mymodel(image, gender)
+            y_pred = F.softmax(y_pred, dim=1)
+            output = (y_pred * ageTable).sum(dim=-1).view(-1)
+            label = label.view(-1)
 
-            output = torch.argmax(y_pred, dim=1) + 1
-
-            output = torch.squeeze(output)
-            label = torch.squeeze(label)
             for i in range(output.shape[0]):
                 train_record.append([label[i].item(), round(output[i].item(), 2)])
             assert output.shape == label.shape, "pred and output isn't the same shape"
@@ -366,8 +372,10 @@ def map_fn(flags):
             label = data[1].cuda()
 
             y_pred = mymodel(image, gender)
+            y_pred = F.softmax(y_pred, dim=1)
+            output = (y_pred * ageTable).sum(dim=-1).view(-1)
+            label = label.view(-1)
 
-            output = torch.argmax(y_pred, dim=1) + 1
             if output.shape[0] != 1:
                 output = torch.squeeze(output)
                 label = torch.squeeze(label)
@@ -394,14 +402,14 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/Res50PreLDL'
+    save_path = '../../autodl-tmp/Res50SoftlableHistNromAll'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
     flags['lr'] = 5e-4
     flags['batch_size'] = 32
     flags['num_workers'] = 8
-    flags['num_epochs'] = 75
+    flags['num_epochs'] = 100
     flags['seed'] = 1
 
     data_dir = '../../autodl-tmp/archive_histNorm/'
