@@ -264,8 +264,8 @@ def map_fn(flags):
 
     global best_loss
     best_loss = float('inf')
-    #   loss_fn =  nn.MSELoss(reduction = 'sum')
-    loss_fn = nn.L1Loss(reduction='sum')
+    loss_fn =  nn.MSELoss(reduction = 'sum')
+    # loss_fn = nn.L1Loss(reduction='sum')
     # loss_fn = nn.BCELoss(reduction='sum')
     # loss_fn = nn.CrossEntropyLoss(reduction='sum')
     lr = flags['lr']
@@ -298,12 +298,12 @@ def map_fn(flags):
         train_loss, val_mae = training_loss / total_size, mae_loss / val_total_size
         if val_mae < best_loss:
             best_loss = val_mae
+            torch.save(mymodel.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
         print(
             f'training loss is {train_loss}, val loss is {val_mae}, time : {time.time() - start_time}, lr:{optimizer.param_groups[0]["lr"]}')
         scheduler.step()
 
     print(f'best loss: {best_loss}')
-    torch.save(mymodel.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
     # if use multi-gpu
     # torch.save(mymodel.module.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
 
@@ -386,15 +386,15 @@ def map_fn(flags):
 
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--lr', type=float)
-    parser.add_argument('--batch_size', type=int)
-    parser.add_argument('--num_epochs', type=int)
-    parser.add_argument('--seed', type=int)
-    args = parser.parse_args()
-    save_path = '../../autodl-tmp/Res50PreMAE'
+    # import argparse
+    #
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('--lr', type=float)
+    # parser.add_argument('--batch_size', type=int)
+    # parser.add_argument('--num_epochs', type=int)
+    # parser.add_argument('--seed', type=int)
+    # args = parser.parse_args()
+    save_path = '../../autodl-tmp/2_28_FinalDataset_Res50_MSE'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
@@ -404,7 +404,7 @@ if __name__ == "__main__":
     flags['num_epochs'] = 75
     flags['seed'] = 1
 
-    data_dir = '../../autodl-tmp/archive_histNorm/'
+    data_dir = '../../autodl-tmp/archiveFinal/'
     # data_dir = r'E:/code/archive/masked_1K_fold/fold_1'
 
     train_csv = os.path.join(data_dir, "train.csv")
