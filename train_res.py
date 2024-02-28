@@ -298,12 +298,12 @@ def map_fn(flags):
         train_loss, val_mae = training_loss / total_size, mae_loss / val_total_size
         if val_mae < best_loss:
             best_loss = val_mae
+            torch.save(mymodel.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
         print(
             f'training loss is {train_loss}, val loss is {val_mae}, time : {time.time() - start_time}, lr:{optimizer.param_groups[0]["lr"]}')
         scheduler.step()
 
     print(f'best loss: {best_loss}')
-    torch.save(mymodel.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
     # if use multi-gpu
     # torch.save(mymodel.module.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
 
@@ -317,6 +317,8 @@ def map_fn(flags):
     )
 
 
+    mymodel.load_state_dict(torch.load('/'.join([save_path, f'{model_name}.bin'])), strict=True)
+    mymodel = mymodel.cuda()
     # save log
     with torch.no_grad():
         train_record = [['label', 'pred']]
@@ -392,17 +394,17 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/histNorm_MSE'
+    save_path = '../../autodl-tmp/2_28_FinalDataset_Res50_CE'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
     flags['lr'] = 5e-4
     flags['batch_size'] = 32
     flags['num_workers'] = 8
-    flags['num_epochs'] = 75
+    flags['num_epochs'] = 100
     flags['seed'] = 1
 
-    data_dir = '../../autodl-tmp/archive_histNorm/'
+    data_dir = '../../autodl-tmp/archiveFinal/'
     # data_dir = r'E:/code/archive/masked_1K_fold/fold_1'
 
     train_csv = os.path.join(data_dir, "train.csv")

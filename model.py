@@ -207,6 +207,7 @@ class baseline(nn.Module):
 
     def __init__(self, gender_length, backbone, out_channels) -> None:
         super(baseline, self).__init__()
+        # 压缩32倍，通道变为2048
         self.backbone = nn.Sequential(*backbone)
         self.out_channels = out_channels
 
