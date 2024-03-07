@@ -29,11 +29,11 @@ from utils.func import print, balance_data
 
 warnings.filterwarnings("ignore")
 
-seed = 1#seed必须是int，可以自行设置
+seed = 1  # seed必须是int，可以自行设置
 torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)#让显卡产生的随机数一致
-torch.cuda.manual_seed_all(seed)#多卡模式下，让所有显卡生成的随机数一致？这个待验证
-np.random.seed(seed)#numpy产生的随机数一致
+torch.cuda.manual_seed(seed)  # 让显卡产生的随机数一致
+torch.cuda.manual_seed_all(seed)  # 多卡模式下，让所有显卡生成的随机数一致？这个待验证
+np.random.seed(seed)  # numpy产生的随机数一致
 random.seed(seed)
 
 # CUDA中的一些运算，如对sparse的CUDA张量与dense的CUDA张量调用torch.bmm()，它通常使用不确定性算法。
@@ -43,7 +43,6 @@ torch.backends.cudnn.deterministic = True
 # 设置这个flag可以让内置的cuDNN的auto-tuner自动寻找最适合当前配置的高效算法，来达到优化运行效率的问题。
 # 但是由于噪声和不同的硬件条件，即使是同一台机器，benchmark都可能会选择不同的算法。为了消除这个随机性，设置为 False
 torch.backends.cudnn.benchmark = False
-
 
 norm_mean = [0.143]  # 0.458971
 norm_std = [0.144]  # 0.225609
@@ -88,7 +87,6 @@ transform_test = Compose([
     Lambda(image=sample_normalize),
     ToTensorV2(),
 ])
-
 
 
 class BAATrainDataset(Dataset):
@@ -207,7 +205,7 @@ def evaluate_fn(net, val_loader):
 
             output = net(image, gender)
             # y_pred = net(image, gender)
-            y_pred = torch.argmax(output, dim=1)+1
+            y_pred = torch.argmax(output, dim=1) + 1
 
             dis_pred = (F.softmax(output, dim=1) * ageTable).sum(dim=-1).view(-1)
 
@@ -223,16 +221,16 @@ def evaluate_fn(net, val_loader):
 
 
 import time
-from model import baseline, get_My_resnet50
+from model import get_My_resnet50, ResAndFusion
 
 
 def map_fn(flags):
-    model_name = f'Res50_CE_256'
+    model_name = f'Res50AndFusion_CE_256'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
 
-    mymodel = baseline(32, *get_My_resnet50(pretrained=True)).cuda()
+    mymodel = ResAndFusion(32, *get_My_resnet50(pretrained=True)).cuda()
     #   mymodel.load_state_dict(torch.load('/content/drive/My Drive/BAA/resnet50_pr_2/best_resnet50_pr_2.bin'))
     # mymodel = nn.DataParallel(mymodel.cuda(), device_ids=gpus, output_device=gpus[0])
 
@@ -315,7 +313,6 @@ def map_fn(flags):
         pin_memory=True
     )
 
-
     mymodel.load_state_dict(torch.load('/'.join([save_path, f'{model_name}.bin'])), strict=True)
     mymodel = mymodel.cuda()
     # save log
@@ -337,7 +334,7 @@ def map_fn(flags):
             y_pred = mymodel(image, gender)
 
             # age_pred = (F.softmax(y_pred, dim=1) * ageTable).sum(dim=-1).view(-1)
-            output = torch.argmax(y_pred, dim=1)+1
+            output = torch.argmax(y_pred, dim=1) + 1
 
             output = torch.squeeze(output)
             label = torch.squeeze(label)
@@ -369,7 +366,7 @@ def map_fn(flags):
 
             y_pred = mymodel(image, gender)
 
-            output = torch.argmax(y_pred, dim=1)+1
+            output = torch.argmax(y_pred, dim=1) + 1
             if output.shape[0] != 1:
                 output = torch.squeeze(output)
                 label = torch.squeeze(label)
@@ -396,7 +393,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/256_res50_CE'
+    save_path = '../../autodl-tmp/256_res50AndFusion_CE'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}

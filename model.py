@@ -519,6 +519,57 @@ class ResAndFPN(nn.Module):
         return p2, p3, p4, p5
 
 
+class ResAndFusion(nn.Module):
+
+    def __init__(self, gender_length, backbone, out_channels) -> None:
+        super(ResAndFusion, self).__init__()
+        # Backbone
+        self.out_channels = out_channels + out_channels/2 + out_channels/4 + out_channels/8
+        self.stage01 = nn.Sequential(*backbone[0:5])  # 3 -> 256
+        self.stage2 = backbone[5]    # 256 -> 512
+        self.stage3 = backbone[6]    # 512 -> 1024
+        self.stage4 = backbone[7]    # 1024 -> 2048
+
+        self.gender_encoder = nn.Sequential(
+            nn.Linear(1, gender_length),
+            nn.BatchNorm1d(gender_length),
+            nn.ReLU()
+        )
+
+        self.MLP = nn.Sequential(
+            nn.Linear(in_features=out_channels + gender_length, out_features=1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Linear(1024, 230)
+        )
+
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+
+    def forward(self, x, gender):
+        #   Bottom-up
+        c2 = self.stage01(x)    # [B, 3, 512 ,512] -> [B, 256, 128, 128]
+        c3 = self.stage2(c2)    # [B, 256, 128 ,128] -> [B, 512, 64, 64]
+        c4 = self.stage3(c3)    # [B, 512, 64, 64] -> [B, 1024, 32, 32]
+        c5 = self.stage4(c4)    # [B, 1024, 32, 32] -> [B, 2048, 16 ,16]
+
+        #   interpolate
+        H, W = c2.size()
+        p5 = F.interpolate(c5, size=(H, W), mode='bilinear', align_corners=True)
+        p4 = F.interpolate(c4, size=(H, W), mode='bilinear', align_corners=True)
+        p3 = F.interpolate(c3, size=(H, W), mode='bilinear', align_corners=True)
+
+        # concat
+        fusion_feature = torch.cat((p5, p4, p3, c2), dim=1)
+
+        fusion_vector = self.avgpool(fusion_feature)
+        fusion_vector = torch.squeeze(fusion_vector)
+
+        # encode gender
+        gender_encode = self.gender_encoder(gender)
+
+        return self.MLP(torch.cat((fusion_vector, gender_encode), dim=-1))
+
+
 class Pooling_attention(nn.Module):
     def __init__(self, input_channels, kernel_size=1):
         super(Pooling_attention, self).__init__()
