@@ -471,6 +471,54 @@ class classify(nn.Module):
         return self.classifier(x)
 
 
+class ResAndFPN(nn.Module):
+
+    def __init__(self, gender_length, num_classes, backbone, out_channels) -> None:
+        super(ResAndFPN, self).__init__()
+        # Backbone
+        self.out_channels = out_channels
+        self.stage01 = nn.Sequential(*backbone[0:5])  # 3 -> 256
+        self.stage2 = backbone[5]    # 256 -> 512
+        self.stage3 = backbone[6]    # 512 -> 1024
+        self.stage4 = backbone[7]    # 1024 -> 2048
+
+        # Top layer
+        self.toplayer = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)  # Reduce channels
+        # Smooth layers
+        self.smooth1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.smooth2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.smooth3 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        # Lateral layers
+        self.latlayer1 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(256, num_classes)
+
+    def _upsample_add(self, x, y):
+        _, _, H, W = y.size()
+        return F.interpolate(x, size=(H, W), mode='bilinear', align_corners=True) + y
+    def forward(self, x):
+        #   Bottom-up
+        c2 = self.stage01(x)    # [B, 3, 512 ,512] -> [B, 256, 128, 128]
+        c3 = self.stage2(c2)    # [B, 256, 128 ,128] -> [B, 512, 64, 64]
+        c4 = self.stage3(c3)    # [B, 512, 64, 64] -> [B, 1024, 32, 32]
+        c5 = self.stage4(c4)    # [B, 1024, 32, 32] -> [B, 2048, 16 ,16]
+
+        #   Top-down
+        p5 = self.toplayer(c5)  # 2048 -> 256, [16 ,16]
+        p4 = self._upsample_add(p5, self.latlayer1(c4))  # 1024 -> 256, [32, 32]
+        p3 = self._upsample_add(p4, self.latlayer2(c3))  # 512 -> 256, [64, 64]
+        p2 = self._upsample_add(p3, self.latlayer3(c2))  # 256 -> 256, [128, 128]
+
+        # Smooth
+        p4 = self.smooth1(p4)   # [B, 256, 32, 32]
+        p3 = self.smooth2(p3)   # [B, 256, 64, 64]
+        p2 = self.smooth3(p2)   # [B, 256, 128, 128]
+        return p2, p3, p4, p5
+
+
 class Pooling_attention(nn.Module):
     def __init__(self, input_channels, kernel_size=1):
         super(Pooling_attention, self).__init__()
