@@ -537,7 +537,7 @@ class ResAndFusion(nn.Module):
         )
 
         self.MLP = nn.Sequential(
-            nn.Linear(in_features=out_channels + gender_length, out_features=1024),
+            nn.Linear(in_features=self.out_channels + gender_length, out_features=1024),
             nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Linear(1024, 230)
@@ -553,7 +553,7 @@ class ResAndFusion(nn.Module):
         c5 = self.stage4(c4)    # [B, 1024, 32, 32] -> [B, 2048, 16 ,16]
 
         #   interpolate
-        H, W = c2.size()
+        _, _, H, W = c2.size()
         p5 = F.interpolate(c5, size=(H, W), mode='bilinear', align_corners=True)
         p4 = F.interpolate(c4, size=(H, W), mode='bilinear', align_corners=True)
         p3 = F.interpolate(c3, size=(H, W), mode='bilinear', align_corners=True)
@@ -563,6 +563,7 @@ class ResAndFusion(nn.Module):
 
         fusion_vector = self.avgpool(fusion_feature)
         fusion_vector = torch.squeeze(fusion_vector)
+        fusion_vector = fusion_vector.view(-1, self.out_channels)
 
         # encode gender
         gender_encode = self.gender_encoder(gender)
