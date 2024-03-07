@@ -61,6 +61,12 @@ def sample_normalize(image, **kwargs):
     mean, std = image.reshape((-1, channel)).mean(axis=0), image.reshape((-1, channel)).std(axis=0)
     return (image - mean) / (std + 1e-3)
 
+train_norm_mean = (0.11236864, 0.11236864, 0.11236864)  # 0.458971
+train_norm_std = (0.24995411, 0.24995411, 0.24995411)  # 0.225609
+
+valid_norm_mean = (0.11671863, 0.11671863, 0.11671863)
+valid_norm_std = (0.25374733, 0.25374733, 0.25374733)
+
 
 transform_train = Compose([
     # RandomBrightnessContrast(p = 0.8),
@@ -73,7 +79,8 @@ transform_train = Compose([
     # ShiftScaleRotate(shift_limit = 0.2, scale_limit = 0.2, rotate_limit=20, p = 0.8),
     HorizontalFlip(p=0.5),
     RandomBrightnessContrast(p=0.8, contrast_limit=(-0.3, 0.2)),
-    Lambda(image=sample_normalize),
+    # Lambda(image=sample_normalize),
+    Normalize(mean=train_norm_mean, std=train_norm_std),
     ToTensorV2(),
     Lambda(image=randomErase)
 
@@ -81,6 +88,7 @@ transform_train = Compose([
 
 transform_val = Compose([
     Lambda(image=sample_normalize),
+    Normalize(mean=valid_norm_mean, std=valid_norm_std),
     ToTensorV2(),
 ])
 
@@ -396,7 +404,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/256_res50_CE'
+    save_path = '../../autodl-tmp/256_res50_norm_CE'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}

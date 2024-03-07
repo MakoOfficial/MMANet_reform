@@ -524,7 +524,7 @@ class ResAndFusion(nn.Module):
     def __init__(self, gender_length, backbone, out_channels) -> None:
         super(ResAndFusion, self).__init__()
         # Backbone
-        self.out_channels = out_channels + out_channels/2 + out_channels/4 + out_channels/8
+        self.out_channels = int(out_channels + out_channels/2 + out_channels/4 + out_channels/8)
         self.stage01 = nn.Sequential(*backbone[0:5])  # 3 -> 256
         self.stage2 = backbone[5]    # 256 -> 512
         self.stage3 = backbone[6]    # 512 -> 1024

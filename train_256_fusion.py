@@ -44,11 +44,13 @@ torch.backends.cudnn.deterministic = True
 # 但是由于噪声和不同的硬件条件，即使是同一台机器，benchmark都可能会选择不同的算法。为了消除这个随机性，设置为 False
 torch.backends.cudnn.benchmark = False
 
-norm_mean = [0.143]  # 0.458971
-norm_std = [0.144]  # 0.225609
+train_norm_mean = (0.11236864, 0.11236864, 0.11236864)  # 0.458971
+train_norm_std = (0.24995411, 0.24995411, 0.24995411)  # 0.225609
+
+valid_norm_mean = (0.11671863, 0.11671863, 0.11671863)
+valid_norm_std = (0.25374733, 0.25374733, 0.25374733)
 
 RandomErasing = transforms.RandomErasing(scale=(0.02, 0.08), ratio=(0.5, 2), p=0.8)
-
 
 def randomErase(image, **kwargs):
     return RandomErasing(image)
@@ -72,14 +74,16 @@ transform_train = Compose([
     # ShiftScaleRotate(shift_limit = 0.2, scale_limit = 0.2, rotate_limit=20, p = 0.8),
     HorizontalFlip(p=0.5),
     RandomBrightnessContrast(p=0.8, contrast_limit=(-0.3, 0.2)),
-    Lambda(image=sample_normalize),
+    # Lambda(image=sample_normalize),
+    Normalize(mean=train_norm_mean, std=train_norm_std),
     ToTensorV2(),
     Lambda(image=randomErase)
 
 ])
 
 transform_val = Compose([
-    Lambda(image=sample_normalize),
+    # Lambda(image=sample_normalize),
+    Normalize(mean=valid_norm_mean, std=valid_norm_std),
     ToTensorV2(),
 ])
 
@@ -144,8 +148,6 @@ def L1_penalty(net, alpha):
     loss = 0
     for param in net.MLP.parameters():
         loss += torch.sum(torch.abs(param))
-    for param2 in net.classifier.parameters():
-        loss += torch.sum(torch.abs(param2))
 
     return alpha * loss
 
