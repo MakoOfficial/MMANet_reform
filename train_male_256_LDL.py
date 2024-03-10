@@ -25,7 +25,20 @@ from albumentations import Compose, Resize
 import warnings
 
 import torchvision.transforms as transforms
-from utils.func import print, balance_data
+from utils.func import LDL
+rewrite_print = print
+
+
+# 定义新的print函数。
+def print(*arg):
+    # 首先，调用原始的print函数将内容打印到控制台。
+    rewrite_print(*arg)
+
+    log_name = 'log.txt'
+    filename = os.path.join(save_path, log_name)
+    rewrite_print(*arg, file=open(filename, "a"))
+
+
 
 warnings.filterwarnings("ignore")
 
@@ -61,17 +74,11 @@ def sample_normalize(image, **kwargs):
     mean, std = image.reshape((-1, channel)).mean(axis=0), image.reshape((-1, channel)).std(axis=0)
     return (image - mean) / (std + 1e-3)
 
-train_norm_mean = (0.11236864, 0.11236864, 0.11236864)  # 0.458971
-train_norm_std = (0.24995411, 0.24995411, 0.24995411)  # 0.225609
-
-valid_norm_mean = (0.11671863, 0.11671863, 0.11671863)
-valid_norm_std = (0.25374733, 0.25374733, 0.25374733)
-
 
 transform_train = Compose([
     # RandomBrightnessContrast(p = 0.8),
     # Resize(height=512, width=512),
-    RandomResizedCrop(256, 256, (0.5, 1.0), p=0.5),
+    RandomResizedCrop(512, 512, (0.5, 1.0), p=0.5),
     ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=20, border_mode=cv2.BORDER_CONSTANT, value=0.0,
                      p=0.8),
     # HorizontalFlip(p = 0.5),
@@ -79,16 +86,14 @@ transform_train = Compose([
     # ShiftScaleRotate(shift_limit = 0.2, scale_limit = 0.2, rotate_limit=20, p = 0.8),
     HorizontalFlip(p=0.5),
     RandomBrightnessContrast(p=0.8, contrast_limit=(-0.3, 0.2)),
-    # Lambda(image=sample_normalize),
-    Normalize(mean=train_norm_mean, std=train_norm_std),
+    Lambda(image=sample_normalize),
     ToTensorV2(),
     Lambda(image=randomErase)
 
 ])
 
 transform_val = Compose([
-    # Lambda(image=sample_normalize),
-    Normalize(mean=valid_norm_mean, std=valid_norm_std),
+    Lambda(image=sample_normalize),
     ToTensorV2(),
 ])
 
@@ -154,39 +159,49 @@ def L1_penalty(net, alpha):
     return alpha * loss
 
 
-def train_fn(net, train_loader, loss_fn, epoch, optimizer):
+
+def train_fn(net, train_loader, loss_fn, loss_KL, epoch, optimizer):
     '''
     checkpoint is a dict
     '''
     global total_size
     global training_loss
-
+    global training_KL_loss
+    ageTable = torch.arange(1, 229, requires_grad=False).type(torch.FloatTensor).cuda()
     net.train()
     for batch_idx, data in enumerate(train_loader):
-        image = data[0]
-        image = image.type(torch.FloatTensor).cuda()
+        image, gender = data[0]
+        image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
         batch_size = len(data[1])
         # label = F.one_hot(data[1]-1, num_classes=230).float().cuda()
-        label = (data[1] - 1).type(torch.LongTensor).cuda()
+        label = data[1].cuda()
+        label_LDL = data[2].cuda()
 
         # zero the parameter gradients
         optimizer.zero_grad()
         # forward
-        y_pred = net(image)
-        y_pred = y_pred.squeeze()
-        label = label.squeeze()
+        y_pred = net(image, gender)
+        y_pred = F.softmax(y_pred, dim=1)
+        age_pred = (y_pred*ageTable).sum(dim=-1).view(-1)
+        label = label.view(-1)
+
+        # KL
+        KLLoss = loss_KL(y_pred.log(), label_LDL)
+
         # print(y_pred)
         # print(y_pred, label)
-        loss = loss_fn(y_pred, label)
+        loss = loss_fn(age_pred, label)
         # backward,calculate gradients
-        total_loss = loss + L1_penalty(net, 1e-5)
+        total_loss = KLLoss + loss + L1_penalty(net, 1e-5)
         total_loss.backward()
         # backward,update parameter
         optimizer.step()
         batch_loss = loss.item()
+        batch_KL_loss = KLLoss.item()
 
         training_loss += batch_loss
+        training_KL_loss += batch_KL_loss
         total_size += batch_size
     return training_loss / total_size
 
@@ -196,32 +211,26 @@ def evaluate_fn(net, val_loader):
 
     global mae_loss
     global val_total_size
-    global dis_loss
     ageTable = torch.arange(1, 229, requires_grad=False).type(torch.FloatTensor).cuda()
     with torch.no_grad():
         for batch_idx, data in enumerate(val_loader):
             val_total_size += len(data[1])
 
-            image = data[0]
-            image = image.type(torch.FloatTensor).cuda()
+            image, gender = data[0]
+            image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
 
             label = data[1].cuda()
 
-            output = net(image)
-
-            y_pred = torch.argmax(output, dim=1)+1
-
-            dis_pred = (F.softmax(output, dim=1) * ageTable).sum(dim=-1).view(-1)
-
-            y_pred = y_pred.squeeze()
-            label = label.squeeze()
+            y_pred = net(image, gender)
+            # y_pred = net(image, gender)
+            y_pred = F.softmax(y_pred, dim=1)
+            y_pred = (y_pred * ageTable).sum(dim=-1).view(-1)
+            label = label.view(-1)
 
             batch_loss = F.l1_loss(y_pred, label, reduction='sum').item()
-            batch_dis_loss = F.l1_loss(dis_pred, label, reduction='sum').item()
             # print(batch_loss/len(data[1]))
             mae_loss += batch_loss
-            dis_loss += batch_dis_loss
-    return mae_loss, dis_loss
+    return mae_loss
 
 
 import time
@@ -229,7 +238,7 @@ from model import baselineSingleGender, get_My_resnet50
 
 
 def map_fn(flags):
-    model_name = f'Res50_CE_256_male'
+    model_name = f'Res50_LDL_256_male'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
@@ -263,12 +272,11 @@ def map_fn(flags):
 
     global best_loss
     best_loss = float('inf')
-    global best_LDL_loss
-    best_LDL_loss = float('inf')
     #   loss_fn =  nn.MSELoss(reduction = 'sum')
-    # loss_fn = nn.L1Loss(reduction='sum')
+    loss_fn = nn.L1Loss(reduction='sum')
+    loss_KL = nn.KLDivLoss(reduction='sum')
     # loss_fn = nn.BCELoss(reduction='sum')
-    loss_fn = nn.CrossEntropyLoss(reduction='sum')
+    # loss_fn = nn.CrossEntropyLoss(reduction='sum')
     lr = flags['lr']
 
     wd = 0
@@ -281,34 +289,114 @@ def map_fn(flags):
     for epoch in range(flags['num_epochs']):
         global training_loss
         training_loss = torch.tensor([0], dtype=torch.float32)
+        global training_KL_loss
+        training_KL_loss = torch.tensor([0], dtype=torch.float32)
         global total_size
         total_size = torch.tensor([0], dtype=torch.float32)
 
         global mae_loss
         mae_loss = torch.tensor([0], dtype=torch.float32)
-        global dis_loss
-        dis_loss = torch.tensor([0], dtype=torch.float32)
         global val_total_size
         val_total_size = torch.tensor([0], dtype=torch.float32)
 
         start_time = time.time()
-        train_fn(mymodel, train_loader, loss_fn, epoch, optimizer)
+        train_fn(mymodel, train_loader, loss_fn, loss_KL, epoch, optimizer)
 
         ## Evaluation
         # Sets net to eval and no grad context
         evaluate_fn(mymodel, val_loader)
 
-        train_loss, val_mae, val_dis = training_loss / total_size, mae_loss / val_total_size, dis_loss / val_total_size
+        train_loss, train_KL_loss, val_mae = training_loss / total_size, training_KL_loss / total_size, mae_loss / val_total_size
         if val_mae < best_loss:
             best_loss = val_mae
             torch.save(mymodel.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
-        if val_dis < best_LDL_loss:
-            best_LDL_loss = val_dis        
         print(
-            f'training loss is {train_loss}, val loss is {val_mae}, dis loss is {val_dis}, time : {time.time() - start_time}, lr:{optimizer.param_groups[0]["lr"]}')
+            f'training loss is {train_loss}, training KL loss is {train_KL_loss}, val loss is {val_mae}, time : {time.time() - start_time}, lr:{optimizer.param_groups[0]["lr"]}')
         scheduler.step()
 
-    print(f'best loss: {best_loss}, LDL loss :{best_LDL_loss}')
+    print(f'best loss: {best_loss}')
+    # if use multi-gpu
+    # torch.save(mymodel.module.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
+
+    mymodel.load_state_dict(torch.load('/'.join([save_path, f'{model_name}.bin'])), strict=True)
+    mymodel = mymodel.cuda()
+
+    train_test_dataset = BAAValDataset(train_df, train_path)
+    train_test_dataloader = torch.utils.data.DataLoader(
+        train_test_dataset,
+        batch_size=flags['batch_size'],
+        shuffle=False,
+        num_workers=flags['num_workers'],
+        pin_memory=True
+    )
+
+
+    # save log
+    with torch.no_grad():
+        train_record = [['label', 'pred']]
+        train_record_path = os.path.join(save_path, f"train_result.csv")
+        train_length = 0.
+        total_loss = 0.
+        mymodel.eval()
+        ageTable = torch.arange(1, 229, requires_grad=False).type(torch.FloatTensor).cuda()
+        for idx, data in enumerate(train_test_dataloader):
+            image, gender = data[0]
+            image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
+
+            batch_size = len(data[1])
+            label = data[1].cuda()
+
+            y_pred = mymodel(image, gender)
+            y_pred = F.softmax(y_pred, dim=1)
+            output = (y_pred * ageTable).sum(dim=-1).view(-1)
+            label = label.view(-1)
+
+            for i in range(output.shape[0]):
+                train_record.append([label[i].item(), round(output[i].item(), 2)])
+            assert output.shape == label.shape, "pred and output isn't the same shape"
+
+            total_loss += F.l1_loss(output, label, reduction='sum').item()
+            train_length += batch_size
+        print(f"training dataset length :{train_length}")
+        print(f'final training loss: {round(total_loss / train_length, 3)}')
+        with open(train_record_path, 'w', newline='') as csvfile:
+            writer_train = csv.writer(csvfile)
+            for row in train_record:
+                writer_train.writerow(row)
+
+    with torch.no_grad():
+        val_record = [['label', 'pred']]
+        val_record_path = os.path.join(save_path, f"val_result.csv")
+        val_length = 0.
+        val_loss = 0.
+        mymodel.eval()
+        for idx, data in enumerate(val_loader):
+            image, gender = data[0]
+            image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
+
+            batch_size = len(data[1])
+            label = data[1].cuda()
+
+            y_pred = mymodel(image, gender)
+            y_pred = F.softmax(y_pred, dim=1)
+            output = (y_pred * ageTable).sum(dim=-1).view(-1)
+            label = label.view(-1)
+
+            if output.shape[0] != 1:
+                output = torch.squeeze(output)
+                label = torch.squeeze(label)
+            for i in range(output.shape[0]):
+                val_record.append([label[i].item(), round(output[i].item(), 2)])
+            # assert output.shape == label.shape, "pred and output isn't the same shape"
+
+            val_loss += F.l1_loss(output, label, reduction='sum').item()
+            val_length += batch_size
+        print(f"valid dataset length :{val_length}")
+        print(f'final val loss: {round(val_loss / val_length, 3)}')
+        with open(val_record_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            for row in val_record:
+                writer.writerow(row)
 
 
 if __name__ == "__main__":
@@ -320,7 +408,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/256_res50_norm_CE_male'
+    save_path = '../../autodl-tmp/256_res50_LDL'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
@@ -330,7 +418,8 @@ if __name__ == "__main__":
     flags['num_epochs'] = 100
     flags['seed'] = 1
 
-    data_dir = '../../autodl-tmp/archiveMale/'
+    data_dir = '../../autodl-tmp/archiveFinal/'
+    # data_dir = r'E:/code/archive/masked_1K_fold/fold_1'
 
     train_csv = os.path.join(data_dir, "train.csv")
     train_df = pd.read_csv(train_csv)
@@ -339,5 +428,12 @@ if __name__ == "__main__":
     train_path = os.path.join(data_dir, "train")
     valid_path = os.path.join(data_dir, "valid")
 
+    boneage_mean = train_df['boneage'].mean()
+    boneage_div = train_df['boneage'].std()
+
+    # balanced_df = balance_data(data_dir, "train.csv", 10, 640)
+
+    # train_ori_dir = '../../autodl-tmp/ori_4K_fold/'
+    # train_ori_dir = '../archive/masked_1K_fold/'
     print(f'{save_path} start')
     map_fn(flags)
