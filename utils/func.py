@@ -171,7 +171,7 @@ def balance_data(data_dir, csv_name, category_num, aug_num):
     return train_df
 
 
-def LDL(label, vector_length=10):
+def LDL(label, vector_length=228):
     label = int(label)
     center_index = label - 1
     std_dev = 1

@@ -251,6 +251,46 @@ class baseline(nn.Module):
         gender_encode = self.gender_encoder(gender)
 
         return self.MLP(torch.cat((x, gender_encode), dim=-1))
+    
+
+class baselineSingleGender(nn.Module):
+
+    def __init__(self, backbone, out_channels) -> None:
+        super(baselineSingleGender, self).__init__()
+        # 压缩32倍，通道变为2048
+        self.backbone = nn.Sequential(*backbone)
+        self.out_channels = out_channels
+
+        self.MLP = nn.Sequential(
+            nn.Linear(in_features=out_channels, out_features=1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            # nn.Linear(512, 1)
+            # nn.Linear(512, 230)
+        )
+
+        self.classifier = nn.Linear(512, 228)
+
+    def forward(self, x):
+        # print(f"x is {x.shape}")
+        x = self.backbone(x)
+        x = F.adaptive_avg_pool2d(x, 1)
+        x = torch.squeeze(x)
+        x = x.view(-1, self.out_channels)
+
+        return self.classifier(self.MLP(x))
+
+    def manifold(self, x, gender):
+        # print(f"x is {x.shape}")
+        x = self.backbone(x)
+        x = F.adaptive_avg_pool2d(x, 1)
+        x = torch.squeeze(x)
+        x = x.view(-1, self.out_channels)
+
+        return self.MLP(x)
 
 
 class baselineMAE(nn.Module):
