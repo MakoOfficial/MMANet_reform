@@ -74,11 +74,17 @@ def sample_normalize(image, **kwargs):
     mean, std = image.reshape((-1, channel)).mean(axis=0), image.reshape((-1, channel)).std(axis=0)
     return (image - mean) / (std + 1e-3)
 
+train_norm_mean = [0.14691083, 0.14691083, 0.14691083]  # 0.458971
+train_norm_std = [0.27544162, 0.27544162, 0.27544162]  # 0.225609
+
+valid_norm_mean = [0.14691083, 0.14691083, 0.14691083]
+valid_norm_std = [0.27544162, 0.27544162, 0.27544162]
+
 
 transform_train = Compose([
     # RandomBrightnessContrast(p = 0.8),
     # Resize(height=512, width=512),
-    RandomResizedCrop(512, 512, (0.5, 1.0), p=0.5),
+    RandomResizedCrop(256, 256, (0.5, 1.0), p=0.5),
     ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=20, border_mode=cv2.BORDER_CONSTANT, value=0.0,
                      p=0.8),
     # HorizontalFlip(p = 0.5),
@@ -86,14 +92,16 @@ transform_train = Compose([
     # ShiftScaleRotate(shift_limit = 0.2, scale_limit = 0.2, rotate_limit=20, p = 0.8),
     HorizontalFlip(p=0.5),
     RandomBrightnessContrast(p=0.8, contrast_limit=(-0.3, 0.2)),
-    Lambda(image=sample_normalize),
+    # Lambda(image=sample_normalize),
+    Normalize(mean=train_norm_mean, std=train_norm_std),
     ToTensorV2(),
     Lambda(image=randomErase)
 
 ])
 
 transform_val = Compose([
-    Lambda(image=sample_normalize),
+    # Lambda(image=sample_normalize),
+    Normalize(mean=valid_norm_mean, std=valid_norm_std),
     ToTensorV2(),
 ])
 
@@ -110,6 +118,7 @@ class BAATrainDataset(Dataset):
             # nomalize boneage distribution
             # df['zscore'] = df['boneage'].map(lambda x: (x - boneage_mean) / boneage_div)
             # change the type of gender, change bool variable to float32
+            df['male'] = df['male'].astype('float32')
             df['bonage'] = df['boneage'].astype('float32')
             return df
 
@@ -119,7 +128,7 @@ class BAATrainDataset(Dataset):
     def __getitem__(self, index):
         row = self.df.iloc[index]
         num = int(row['id'])
-        return transform_train(image=cv2.imread(f"{self.file_path}/{num}.png", cv2.IMREAD_COLOR))['image'], row['boneage']
+        return transform_train(image=cv2.imread(f"{self.file_path}/{num}.png", cv2.IMREAD_COLOR))['image'], row['boneage'], LDL(row[['boneage']])
 
     def __len__(self):
         return len(self.df)
@@ -170,8 +179,8 @@ def train_fn(net, train_loader, loss_fn, loss_KL, epoch, optimizer):
     ageTable = torch.arange(1, 229, requires_grad=False).type(torch.FloatTensor).cuda()
     net.train()
     for batch_idx, data in enumerate(train_loader):
-        image, gender = data[0]
-        image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
+        image = data[0]
+        image = image.type(torch.FloatTensor).cuda()
 
         batch_size = len(data[1])
         # label = F.one_hot(data[1]-1, num_classes=230).float().cuda()
@@ -181,7 +190,7 @@ def train_fn(net, train_loader, loss_fn, loss_KL, epoch, optimizer):
         # zero the parameter gradients
         optimizer.zero_grad()
         # forward
-        y_pred = net(image, gender)
+        y_pred = net(image)
         y_pred = F.softmax(y_pred, dim=1)
         age_pred = (y_pred*ageTable).sum(dim=-1).view(-1)
         label = label.view(-1)
@@ -216,13 +225,12 @@ def evaluate_fn(net, val_loader):
         for batch_idx, data in enumerate(val_loader):
             val_total_size += len(data[1])
 
-            image, gender = data[0]
-            image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
+            image = data[0]
+            image = image.type(torch.FloatTensor).cuda()
 
             label = data[1].cuda()
 
-            y_pred = net(image, gender)
-            # y_pred = net(image, gender)
+            y_pred = net(image)
             y_pred = F.softmax(y_pred, dim=1)
             y_pred = (y_pred * ageTable).sum(dim=-1).view(-1)
             label = label.view(-1)
@@ -315,88 +323,6 @@ def map_fn(flags):
         scheduler.step()
 
     print(f'best loss: {best_loss}')
-    # if use multi-gpu
-    # torch.save(mymodel.module.state_dict(), '/'.join([save_path, f'{model_name}.bin']))
-
-    mymodel.load_state_dict(torch.load('/'.join([save_path, f'{model_name}.bin'])), strict=True)
-    mymodel = mymodel.cuda()
-
-    train_test_dataset = BAAValDataset(train_df, train_path)
-    train_test_dataloader = torch.utils.data.DataLoader(
-        train_test_dataset,
-        batch_size=flags['batch_size'],
-        shuffle=False,
-        num_workers=flags['num_workers'],
-        pin_memory=True
-    )
-
-
-    # save log
-    with torch.no_grad():
-        train_record = [['label', 'pred']]
-        train_record_path = os.path.join(save_path, f"train_result.csv")
-        train_length = 0.
-        total_loss = 0.
-        mymodel.eval()
-        ageTable = torch.arange(1, 229, requires_grad=False).type(torch.FloatTensor).cuda()
-        for idx, data in enumerate(train_test_dataloader):
-            image, gender = data[0]
-            image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
-
-            batch_size = len(data[1])
-            label = data[1].cuda()
-
-            y_pred = mymodel(image, gender)
-            y_pred = F.softmax(y_pred, dim=1)
-            output = (y_pred * ageTable).sum(dim=-1).view(-1)
-            label = label.view(-1)
-
-            for i in range(output.shape[0]):
-                train_record.append([label[i].item(), round(output[i].item(), 2)])
-            assert output.shape == label.shape, "pred and output isn't the same shape"
-
-            total_loss += F.l1_loss(output, label, reduction='sum').item()
-            train_length += batch_size
-        print(f"training dataset length :{train_length}")
-        print(f'final training loss: {round(total_loss / train_length, 3)}')
-        with open(train_record_path, 'w', newline='') as csvfile:
-            writer_train = csv.writer(csvfile)
-            for row in train_record:
-                writer_train.writerow(row)
-
-    with torch.no_grad():
-        val_record = [['label', 'pred']]
-        val_record_path = os.path.join(save_path, f"val_result.csv")
-        val_length = 0.
-        val_loss = 0.
-        mymodel.eval()
-        for idx, data in enumerate(val_loader):
-            image, gender = data[0]
-            image, gender = image.type(torch.FloatTensor).cuda(), gender.type(torch.FloatTensor).cuda()
-
-            batch_size = len(data[1])
-            label = data[1].cuda()
-
-            y_pred = mymodel(image, gender)
-            y_pred = F.softmax(y_pred, dim=1)
-            output = (y_pred * ageTable).sum(dim=-1).view(-1)
-            label = label.view(-1)
-
-            if output.shape[0] != 1:
-                output = torch.squeeze(output)
-                label = torch.squeeze(label)
-            for i in range(output.shape[0]):
-                val_record.append([label[i].item(), round(output[i].item(), 2)])
-            # assert output.shape == label.shape, "pred and output isn't the same shape"
-
-            val_loss += F.l1_loss(output, label, reduction='sum').item()
-            val_length += batch_size
-        print(f"valid dataset length :{val_length}")
-        print(f'final val loss: {round(val_loss / val_length, 3)}')
-        with open(val_record_path, 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            for row in val_record:
-                writer.writerow(row)
 
 
 if __name__ == "__main__":
@@ -408,7 +334,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/256_res50_LDL'
+    save_path = '../../autodl-tmp/256_res50_male_LDL'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
@@ -418,7 +344,7 @@ if __name__ == "__main__":
     flags['num_epochs'] = 100
     flags['seed'] = 1
 
-    data_dir = '../../autodl-tmp/archiveFinal/'
+    data_dir = '../../autodl-tmp/archiveMale/'
     # data_dir = r'E:/code/archive/masked_1K_fold/fold_1'
 
     train_csv = os.path.join(data_dir, "train.csv")

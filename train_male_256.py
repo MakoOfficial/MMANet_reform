@@ -25,7 +25,17 @@ from albumentations import Compose, Resize
 import warnings
 
 import torchvision.transforms as transforms
-from utils.func import print, balance_data
+rewrite_print = print
+
+
+# 定义新的print函数。
+def print(*arg):
+    # 首先，调用原始的print函数将内容打印到控制台。
+    rewrite_print(*arg)
+
+    log_name = 'log.txt'
+    filename = os.path.join(save_path, log_name)
+    rewrite_print(*arg, file=open(filename, "a"))
 
 warnings.filterwarnings("ignore")
 
@@ -61,11 +71,11 @@ def sample_normalize(image, **kwargs):
     mean, std = image.reshape((-1, channel)).mean(axis=0), image.reshape((-1, channel)).std(axis=0)
     return (image - mean) / (std + 1e-3)
 
-train_norm_mean = (0.11236864, 0.11236864, 0.11236864)  # 0.458971
-train_norm_std = (0.24995411, 0.24995411, 0.24995411)  # 0.225609
+train_norm_mean = [0.14691083, 0.14691083, 0.14691083]  # 0.458971
+train_norm_std = [0.27544162, 0.27544162, 0.27544162]  # 0.225609
 
-valid_norm_mean = (0.11671863, 0.11671863, 0.11671863)
-valid_norm_std = (0.25374733, 0.25374733, 0.25374733)
+valid_norm_mean = [0.14691083, 0.14691083, 0.14691083]
+valid_norm_std = [0.27544162, 0.27544162, 0.27544162]
 
 
 transform_train = Compose([
