@@ -283,14 +283,25 @@ class baselineSingleGender(nn.Module):
 
         return self.classifier(self.MLP(x))
 
-    def manifold(self, x, gender):
+    def manifold(self, x):
         # print(f"x is {x.shape}")
         x = self.backbone(x)
         x = F.adaptive_avg_pool2d(x, 1)
         x = torch.squeeze(x)
         x = x.view(-1, self.out_channels)
 
-        return self.MLP(x)
+        logit = self.MLP(x)
+
+        return self.classifier(logit), logit
+
+    def featureExtract(self, x):
+        # print(f"x is {x.shape}")
+        x = self.backbone(x)
+        x = F.adaptive_avg_pool2d(x, 1)
+        x = torch.squeeze(x)
+        x = x.view(-1, self.out_channels)
+
+        return x
 
 
 class baselineMAE(nn.Module):

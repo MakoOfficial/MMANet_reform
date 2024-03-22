@@ -179,3 +179,5 @@ def LDL(label, vector_length=228):
     gaussian_values = np.exp(-0.5 * (distances / std_dev) ** 2) / (std_dev * np.sqrt(2 * np.pi))
     gaussian_values = gaussian_values / gaussian_values.sum()
     return gaussian_values
+
+

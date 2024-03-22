@@ -74,12 +74,11 @@ def sample_normalize(image, **kwargs):
     mean, std = image.reshape((-1, channel)).mean(axis=0), image.reshape((-1, channel)).std(axis=0)
     return (image - mean) / (std + 1e-3)
 
-train_norm_mean = [0.14691083, 0.14691083, 0.14691083]  # 0.458971
-train_norm_std = [0.27544162, 0.27544162, 0.27544162]  # 0.225609
+train_norm_mean = [0.14592063, 0.14592063, 0.14592063]  # 0.458971
+train_norm_std = [0.2747628, 0.2747628, 0.2747628]  # 0.225609
 
-valid_norm_mean = [0.14691083, 0.14691083, 0.14691083]
-valid_norm_std = [0.27544162, 0.27544162, 0.27544162]
-
+valid_norm_mean = [0.14592063, 0.14592063, 0.14592063]  # 0.458971
+valid_norm_std = [0.2747628, 0.2747628, 0.2747628]  # 0.225609
 
 transform_train = Compose([
     # RandomBrightnessContrast(p = 0.8),
@@ -185,7 +184,7 @@ def train_fn(net, train_loader, loss_fn, loss_KL, epoch, optimizer):
         batch_size = len(data[1])
         # label = F.one_hot(data[1]-1, num_classes=230).float().cuda()
         label = data[1].cuda()
-        # label_LDL = data[2].cuda()
+        label_LDL = data[2].cuda()
 
         # zero the parameter gradients
         optimizer.zero_grad()
@@ -196,22 +195,22 @@ def train_fn(net, train_loader, loss_fn, loss_KL, epoch, optimizer):
         label = label.view(-1)
 
         # KL
-        # KLLoss = loss_KL(y_pred.log(), label_LDL)
+        KLLoss = loss_KL(y_pred.log(), label_LDL)
 
         # print(y_pred)
         # print(y_pred, label)
         loss = loss_fn(age_pred, label)
         # backward,calculate gradients
-        # total_loss = 0.5*KLLoss + 0.5*loss + L1_penalty(net, 1e-5)
-        total_loss = loss + L1_penalty(net, 1e-5)
+        total_loss = 0.5*KLLoss + 0.5*loss + L1_penalty(net, 1e-5)
+        # total_loss = loss + L1_penalty(net, 1e-5)
         total_loss.backward()
         # backward,update parameter
         optimizer.step()
         batch_loss = loss.item()
-        # batch_KL_loss = KLLoss.item()
+        batch_KL_loss = KLLoss.item()
 
         training_loss += batch_loss
-        # training_KL_loss += batch_KL_loss
+        training_KL_loss += batch_KL_loss
         total_size += batch_size
     return training_loss / total_size
 
@@ -247,7 +246,7 @@ from model import baselineSingleGender, get_My_resnet50
 
 
 def map_fn(flags):
-    model_name = f'Res50_LDL_256_male'
+    model_name = f'Res50_LDL_256_female'
     # Acquires the (unique) Cloud TPU core corresponding to this process's index
     # gpus = [0, 1]
     # torch.cuda.set_device('cuda:{}'.format(gpus[0]))
@@ -335,17 +334,17 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int)
     parser.add_argument('--seed', type=int)
     args = parser.parse_args()
-    save_path = '../../autodl-tmp/256_res50_male_LDL'
+    save_path = '../../autodl-tmp/256_res50_female_LDL'
     os.makedirs(save_path, exist_ok=True)
 
     flags = {}
-    flags['lr'] = 5e-4
+    flags['lr'] = 1e-3
     flags['batch_size'] = 32
     flags['num_workers'] = 8
     flags['num_epochs'] = 100
     flags['seed'] = 1
 
-    data_dir = '../../autodl-tmp/archiveMale/'
+    data_dir = '../../autodl-tmp/archiveFeMale/'
     # data_dir = r'E:/code/archive/masked_1K_fold/fold_1'
 
     train_csv = os.path.join(data_dir, "train.csv")
